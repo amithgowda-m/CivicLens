@@ -9,10 +9,11 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 3
 
-    # API Keys
+    # API Keys & Tokens
     GEMINI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    HF_TOKEN: str = ""
 
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -41,3 +42,8 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
+
+# Propagate HF_TOKEN to os.environ so transformers / huggingface_hub automatically authenticate
+if settings.HF_TOKEN:
+    os.environ["HF_TOKEN"] = settings.HF_TOKEN
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = settings.HF_TOKEN
