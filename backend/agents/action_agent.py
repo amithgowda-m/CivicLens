@@ -180,9 +180,11 @@ async def generate_action_artifact(report: ReportData) -> ActionArtifact:
             system_prompt=system,
             json_mode=False
         )
+        if not content or not content.strip():
+            raise ValueError("LLM generated empty response")
         logger.info(f"LLM generated {action_type} successfully ({len(content)} chars)")
     except Exception as e:
-        logger.error(f"LLM generation failed for action agent: {e}, using structured fallback")
+        logger.warning(f"LLM generation failed for action agent: {e}, using structured fallback")
         # Structured fallback using real report data — still better than old hardcoded version
         if is_objection:
             neg = "\n".join(f"  {i+1}. {p}" for i, p in enumerate(report.negative_impacts[:4]))

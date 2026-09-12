@@ -32,7 +32,8 @@ class NLIEvaluator:
 
     @classmethod
     def score_premise_hypothesis(cls, premise: str, hypothesis: str) -> float:
-        if os.environ.get("CIVICLENS_MOCK_NLI") == "1" or cls.get_model() == "MOCK":
+        model = cls.get_model()
+        if os.environ.get("CIVICLENS_MOCK_NLI") == "1" or model == "MOCK":
             p_low = premise.lower()
             h_low = hypothesis.lower()
             if h_low in p_low:

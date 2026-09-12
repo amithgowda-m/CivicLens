@@ -31,13 +31,6 @@ class LLMClient:
         self.timeout = settings.LLM_TIMEOUT_SECONDS
         self.max_retries = settings.LLM_MAX_RETRIES
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.HTTPStatusError, TimeoutError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True
-    )
     async def generate_text(
         self,
         prompt: str,
@@ -120,7 +113,7 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        candidate_models = ["openai/gpt-oss-120b", "groq/compound", "qwen/qwen3.8-27b"]
+        candidate_models = ["openai/gpt-oss-20b", "qwen/qwen3.6-27b", "openai/gpt-oss-120b"]
         if self.model and self.model in candidate_models:
             candidate_models.remove(self.model)
             candidate_models.insert(0, self.model)
@@ -138,26 +131,20 @@ class LLMClient:
                 if json_mode:
                     payload["response_format"] = {"type": "json_object"}
 
-                for attempt in range(3):
+                for attempt in range(2):
                     try:
                         response = await client.post(url, headers=headers, json=payload)
                         if response.status_code == 429:
-                            wait_time = min(2 ** attempt + 1, 10)
-                            if attempt < 2:
-                                logger.warning(f"Groq rate limited (429) on model '{model}', retrying in {wait_time}s...")
-                                await asyncio.sleep(wait_time)
-                                continue
-                            else:
-                                last_error = httpx.HTTPStatusError("Groq 429 Rate Limit Exceeded", request=response.request, response=response)
-                                break
+                            err_text = response.text
+                            # If daily token quota or TPM limit reached, immediately switch to alternate model
+                            logger.info(f"Groq rate limit on '{model}' — switching model...")
+                            last_error = httpx.HTTPStatusError("Groq Rate Limit Exceeded", request=response.request, response=response)
+                            break
                         response.raise_for_status()
                         data = response.json()
                         return data["choices"][0]["message"]["content"]
                     except httpx.HTTPStatusError as err:
                         last_error = err
-                        if err.response.status_code == 429 and attempt == 0:
-                            await asyncio.sleep(1)
-                            continue
                         break
                     except Exception as err:
                         last_error = err

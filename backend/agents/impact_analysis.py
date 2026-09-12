@@ -23,36 +23,58 @@ async def impact_analysis_node(state: CivicLensState) -> Dict[str, Any]:
     """
     Impact Analysis Agent: Evaluates verified and grounded claims, determining
     concrete civic impact polarity (positive/negative/neutral_mixed) and specific
-    affected stakeholder groups.
+    affected stakeholder groups. Uses batch LLM evaluation for efficiency.
     """
     logger.info("Executing Impact Analysis Agent...")
     grounded_claims = state.get("grounded_claims", [])
+    admitted = [
+        item for item in grounded_claims
+        if item.get("status") != VerificationStatus.REJECTED_PRUNED.value
+    ]
+    if not admitted:
+        return {"impact_tags": []}
+
+    batch_items = [
+        {
+            "claim_id": item.get("clause", {}).get("id", f"cl_{i}"),
+            "text": item.get("clause", {}).get("text", "")[:250],
+            "typology": item.get("clause", {}).get("typology", "other"),
+            "ward": item.get("clause", {}).get("ward", "150")
+        }
+        for i, item in enumerate(admitted)
+    ]
+
+    batch_results: Dict[str, Dict[str, Any]] = {}
+    try:
+        prompt = (
+            "Analyze the civic/economic impact for each of the following municipal clauses:\n"
+            f"{json.dumps(batch_items, indent=2)}\n\n"
+            "Return JSON: {\"impacts\": [{\"claim_id\": \"...\", \"polarity\": \"positive\" | \"negative\" | \"neutral_mixed\", \"affected_group\": \"...\", \"reasoning\": \"...\"}]}"
+        )
+        res_str = await llm_client.generate_text(prompt, system_prompt=SYSTEM_PROMPT, json_mode=True)
+        res_json = json.loads(res_str)
+        for imp in res_json.get("impacts", []):
+            cid = imp.get("claim_id")
+            if cid:
+                batch_results[cid] = imp
+    except Exception as e:
+        logger.warning(f"Batch LLM Impact Tagging failed ({e}), applying rule fallbacks.")
+
     impact_tags: List[Dict[str, Any]] = []
-
-    for item in grounded_claims:
-        # Only process admitted / non-rejected claims
-        if item.get("status") == VerificationStatus.REJECTED_PRUNED.value:
-            continue
-
+    for item in admitted:
         clause = item.get("clause", {})
         cid = clause.get("id", "cl_unknown")
-        text = clause.get("text", "")
         typology = clause.get("typology", "other")
-        ward = clause.get("ward", "150")
 
-        # Call LLM for impact tag
-        try:
-            prompt = f"Clause Text: {text}\nClause Typology: {typology}\nAffected Ward: {ward}"
-            res_str = await llm_client.generate_text(prompt, system_prompt=SYSTEM_PROMPT, json_mode=True)
-            res_json = json.loads(res_str)
+        if cid in batch_results:
+            b_imp = batch_results[cid]
             tag = ImpactTag(
                 claim_id=cid,
-                polarity=res_json.get("polarity", "neutral_mixed"),
-                affected_group=res_json.get("affected_group", "General Ward Residents"),
-                reasoning=res_json.get("reasoning", "Municipal policy update affecting local ward governance.")
+                polarity=b_imp.get("polarity", "neutral_mixed"),
+                affected_group=b_imp.get("affected_group", "General Ward Residents"),
+                reasoning=b_imp.get("reasoning", "Municipal policy update affecting local ward governance.")
             )
-        except Exception as e:
-            logger.warning(f"LLM Impact Tagging failed ({e}), applying fallback rules.")
+        else:
             if typology == "land_use":
                 tag = ImpactTag(
                     claim_id=cid,

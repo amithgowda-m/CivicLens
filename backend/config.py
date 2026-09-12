@@ -5,7 +5,7 @@ from typing import Literal
 class Settings(BaseSettings):
     # LLM Settings
     LLM_PROVIDER: Literal["gemini", "anthropic", "openai", "groq", "ollama"] = "groq"
-    LLM_MODEL: str = "openai/gpt-oss-120b"
+    LLM_MODEL: str = "openai/gpt-oss-20b"
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 3
 

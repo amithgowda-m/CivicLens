@@ -24,33 +24,53 @@ async def critic_node(state: CivicLensState) -> Dict[str, Any]:
     """
     Critic Agent: Adversarially challenges each impact tag, surfacing overlooked
     subgroups and arguing counter-perspectives, then merges results directly into ImpactTags.
+    Uses unified batch evaluation for speed and API quota preservation.
     """
     logger.info("Executing Critic Agent...")
     tags = state.get("impact_tags", [])
+    if not tags:
+        return {"critic_reviewed_tags": []}
+
+    parsed_tags = [ImpactTag.model_validate(t_data) for t_data in tags]
+
+    batch_items = [
+        {
+            "claim_id": t.claim_id,
+            "affected_group": t.affected_group,
+            "polarity": t.polarity,
+            "reasoning": t.reasoning
+        }
+        for t in parsed_tags
+    ]
+
+    batch_results: Dict[str, Dict[str, Any]] = {}
+    try:
+        prompt = (
+            "Critique the following civic impact assessments adversarially, challenging polarity "
+            "and identifying overlooked demographic subgroups:\n"
+            f"{json.dumps(batch_items, indent=2)}\n\n"
+            "Return JSON: {\"critiques\": [{\"claim_id\": \"...\", \"critic_confirmed\": true | false, \"critic_note\": \"...\", \"overlooked_subgroups\": [\"...\"], \"requires_audit\": false}]}"
+        )
+        res_str = await llm_client.generate_text(prompt, system_prompt=CRITIC_SYSTEM_PROMPT, json_mode=True)
+        res_json = json.loads(res_str)
+        for c in res_json.get("critiques", []):
+            cid = c.get("claim_id")
+            if cid:
+                batch_results[cid] = c
+    except Exception as e:
+        logger.warning(f"Batch LLM Critic failed ({e}), using heuristic fallbacks.")
+
     critic_reviewed: List[Dict[str, Any]] = []
-
-    for t_data in tags:
-        tag = ImpactTag.model_validate(t_data)
-
-        try:
-            prompt = f"Affected Group: {tag.affected_group}\nPolarity: {tag.polarity}\nReasoning: {tag.reasoning}"
-            res_str = await llm_client.generate_text(prompt, system_prompt=CRITIC_SYSTEM_PROMPT, json_mode=True)
-            res_json = json.loads(res_str)
-            raw_conf = res_json.get("critic_confirmed", True)
-            if isinstance(raw_conf, str):
-                tag.critic_confirmed = raw_conf.lower() in ("true", "1", "yes")
-            else:
-                tag.critic_confirmed = bool(raw_conf)
-
-            tag.critic_note = res_json.get("critic_note", "Critique completed.")
-            tag.overlooked_subgroups = res_json.get("overlooked_subgroups", [])
-            raw_req = res_json.get("requires_audit", False)
-            if isinstance(raw_req, str):
-                tag.requires_audit = raw_req.lower() in ("true", "1", "yes")
-            else:
-                tag.requires_audit = bool(raw_req)
-        except Exception as e:
-            logger.warning(f"LLM Critic failed ({e}), using heuristic fallback.")
+    for tag in parsed_tags:
+        if tag.claim_id in batch_results:
+            c = batch_results[tag.claim_id]
+            raw_conf = c.get("critic_confirmed", True)
+            tag.critic_confirmed = raw_conf if isinstance(raw_conf, bool) else str(raw_conf).lower() in ("true", "1", "yes")
+            tag.critic_note = str(c.get("critic_note", "Critique completed."))
+            tag.overlooked_subgroups = c.get("overlooked_subgroups", [])
+            raw_req = c.get("requires_audit", False)
+            tag.requires_audit = raw_req if isinstance(raw_req, bool) else str(raw_req).lower() in ("true", "1", "yes")
+        else:
             if tag.polarity == "negative":
                 tag.critic_confirmed = True
                 tag.critic_note = (
