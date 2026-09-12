@@ -57,6 +57,42 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({
             </div>
           </div>
 
+          {/* Change 1 Metadata: Jurisdiction, Source, Authority */}
+          <div className="grid grid-cols-2 gap-3 text-[11px]">
+            <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+              <span className="text-slate-500 block text-[10px]">Jurisdiction Hint:</span>
+              <span className="text-sky-300 font-semibold">{claim.jurisdiction_hint || 'General / Unspecified'}</span>
+            </div>
+            <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
+              <span className="text-slate-500 block text-[10px]">Extraction Source:</span>
+              <span className="text-emerald-300 font-mono">
+                {Array.isArray(claim.extraction_source)
+                  ? claim.extraction_source.join(' + ')
+                  : claim.extraction_source || 'regex'}
+              </span>
+            </div>
+          </div>
+
+          {claim.stated_objection_authority && (
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-slate-500 block text-[10px]">Stated Objection Authority:</span>
+                <span className="text-slate-200 font-medium text-xs">{claim.stated_objection_authority}</span>
+              </div>
+              {claim.authority_status && (
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  claim.authority_status === 'ADMITTED'
+                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                    : claim.authority_status === 'REJECTED_PRUNED'
+                    ? 'bg-rose-950 text-rose-400 border border-rose-800'
+                    : 'bg-amber-950 text-amber-400 border border-amber-800'
+                }`}>
+                  {claim.authority_status}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-slate-400 text-[11px] font-semibold">Verification Gate Audit Status:</label>
             <div className="flex items-center space-x-3 p-3 bg-slate-950 rounded-xl border border-slate-800">

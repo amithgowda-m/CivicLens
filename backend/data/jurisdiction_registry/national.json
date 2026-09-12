@@ -1,0 +1,25 @@
+{
+  "slug": "national",
+  "name": "Republic of India (Central Acts)",
+  "aliases": [
+    "india",
+    "national",
+    "central",
+    "union of india",
+    "supreme court",
+    "right to information",
+    "rti act",
+    "land acquisition",
+    "environment protection act",
+    "ep act",
+    "environment act"
+  ],
+  "letterhead_patterns": [
+    "Government of India",
+    "Gazette of India",
+    "Ministry of Housing and Urban Affairs"
+  ],
+  "legal_corpus_available": true,
+  "ward_to_authority": {},
+  "default_authority": "Competent Central / Appellate Authority"
+}

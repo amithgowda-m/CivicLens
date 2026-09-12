@@ -2,6 +2,7 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 from backend.config import settings
+from backend.jurisdiction import normalize_jurisdiction
 
 logger = logging.getLogger("civiclens.vector_store")
 
@@ -60,7 +61,13 @@ class VectorStoreInterface:
     def upsert_legal_sections(self, sections: List[Dict[str, Any]]):
         raise NotImplementedError
 
-    def search_legal_sections(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+    def search_legal_sections(self, query: str, jurisdiction: Optional[str] = None, limit: int = 3) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def search_audit_precedents(self, authority_text: str, jurisdiction: Optional[str] = None, limit: int = 3) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def upsert_audit_resolution(self, precedent: Dict[str, Any]):
         raise NotImplementedError
 
 
@@ -75,6 +82,10 @@ class ChromaVectorStore(VectorStoreInterface):
         )
         self.legal_col = self.client.get_or_create_collection(
             name="legal_corpus",
+            metadata={"hnsw:space": "cosine"}
+        )
+        self.audit_col = self.client.get_or_create_collection(
+            name="audit_precedents",
             metadata={"hnsw:space": "cosine"}
         )
         logger.info(f"Initialized Chroma vector store in {persist_dir}")
@@ -136,7 +147,8 @@ class ChromaVectorStore(VectorStoreInterface):
             {
                 "statute": str(s.get("statute", "")),
                 "section": str(s.get("section", "")),
-                "title": str(s.get("title", ""))
+                "title": str(s.get("title", "")),
+                "jurisdiction": str(s.get("jurisdiction", "national"))
             }
             for s in sections
         ]
@@ -147,15 +159,36 @@ class ChromaVectorStore(VectorStoreInterface):
             metadatas=metadatas
         )
 
-    def search_legal_sections(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+    def search_legal_sections(self, query: str, jurisdiction: Optional[str] = None, limit: int = 3) -> List[Dict[str, Any]]:
         count = self.legal_col.count()
         if count == 0:
             return []
         emb = EmbeddingService.embed_query(query)
-        results = self.legal_col.query(
-            query_embeddings=[emb],
-            n_results=min(limit, count)
-        )
+
+        where_filter = None
+        if jurisdiction and jurisdiction not in ("national", "_default"):
+            where_filter = {
+                "$or": [
+                    {"jurisdiction": {"$eq": jurisdiction}},
+                    {"jurisdiction": {"$eq": "national"}}
+                ]
+            }
+        elif jurisdiction == "national":
+            where_filter = {"jurisdiction": {"$eq": "national"}}
+
+        try:
+            results = self.legal_col.query(
+                query_embeddings=[emb],
+                n_results=min(limit, count),
+                where=where_filter
+            )
+        except Exception as e:
+            logger.warning(f"Filtered legal search failed ({e}), retrying without filter...")
+            results = self.legal_col.query(
+                query_embeddings=[emb],
+                n_results=min(limit, count)
+            )
+
         matched = []
         if results and results.get("documents") and results["documents"][0]:
             docs = results["documents"][0]
@@ -169,15 +202,117 @@ class ChromaVectorStore(VectorStoreInterface):
                 })
         return matched
 
+    def search_audit_precedents(self, authority_text: str, jurisdiction: Optional[str] = None, limit: int = 3) -> List[Dict[str, Any]]:
+        count = self.audit_col.count()
+        if count == 0:
+            return []
+        emb = EmbeddingService.embed_query(authority_text)
+        where_filter = None
+        if jurisdiction and jurisdiction != "_default":
+            where_filter = {"jurisdiction": {"$eq": jurisdiction}}
 
-    def seed_legal_corpus(self, corpus_dir: str = "backend/data/legal_corpus"):
-        """Seed legal corpus into vector store if empty."""
         try:
-            if self.legal_col.count() > 0:
+            results = self.audit_col.query(
+                query_embeddings=[emb],
+                n_results=min(limit, count),
+                where=where_filter
+            )
+        except Exception:
+            results = self.audit_col.query(
+                query_embeddings=[emb],
+                n_results=min(limit, count)
+            )
+
+        matched = []
+        if results and results.get("documents") and results["documents"][0]:
+            docs = results["documents"][0]
+            metas = results["metadatas"][0] if results.get("metadatas") else [{}] * len(docs)
+            dists = results["distances"][0] if results.get("distances") else [0.0] * len(docs)
+            for doc, meta, dist in zip(docs, metas, dists):
+                matched.append({
+                    "text": doc,
+                    "metadata": meta,
+                    "similarity": round(1.0 - float(dist), 4) if dist is not None else 1.0
+                })
+        return matched
+
+    def upsert_audit_resolution(self, precedent: Dict[str, Any]):
+        p_id = precedent.get("id") or str(hash(precedent.get("authority_claim", "")))
+        text = precedent.get("authority_claim", "")
+        emb = EmbeddingService.embed_texts([text])
+        meta = {
+            "decision": precedent.get("decision", "ADMITTED"),
+            "reasoning": precedent.get("reasoning", ""),
+            "jurisdiction": precedent.get("jurisdiction", "_default")
+        }
+        self.audit_col.upsert(
+            ids=[p_id],
+            embeddings=emb,
+            documents=[text],
+            metadatas=[meta]
+        )
+
+    def seed_audit_precedents(self):
+        """Seeds gold-standard authority resolution precedents if collection is empty."""
+        try:
+            if self.audit_col.count() > 0:
                 return
         except Exception:
             pass
 
+        precedents = [
+            {
+                "id": "prec_gba_chief_comm",
+                "authority_claim": "Chief Commissioner, Greater Bengaluru Authority",
+                "decision": "ADMITTED",
+                "reasoning": "Apex coordinating body under the Greater Bengaluru Governance Act 2024; valid for city-wide policies.",
+                "jurisdiction": "karnataka_bengaluru"
+            },
+            {
+                "id": "prec_joint_comm_east",
+                "authority_claim": "Joint Commissioner, Bengaluru East City Corporation",
+                "decision": "ADMITTED",
+                "reasoning": "Legitimate officer heading zonal administration under the 5-corporation structure.",
+                "jurisdiction": "karnataka_bengaluru"
+            },
+            {
+                "id": "prec_zonal_comm_gba_hallucinated",
+                "authority_claim": "Zonal Commissioner, GBA",
+                "decision": "REJECTED_PRUNED",
+                "reasoning": "Fictitious title. GBA has no Zonal Commissioners; zones are headed by Joint Commissioners of individual corporations.",
+                "jurisdiction": "karnataka_bengaluru"
+            },
+            {
+                "id": "prec_bbmp_comm_superseded",
+                "authority_claim": "Commissioner, Bruhat Bengaluru Mahanagara Palike",
+                "decision": "REJECTED_PRUNED",
+                "reasoning": "BBMP entity superseded by 5 new City Corporations under the GBA restructuring.",
+                "jurisdiction": "karnataka_bengaluru"
+            },
+            {
+                "id": "prec_udd_secretary",
+                "authority_claim": "Secretary to Government, Urban Development Department",
+                "decision": "ADMITTED",
+                "reasoning": "Valid state-level department secretary and statutory appellate authority.",
+                "jurisdiction": "karnataka_bengaluru"
+            }
+        ]
+
+        ids = [p["id"] for p in precedents]
+        docs = [p["authority_claim"] for p in precedents]
+        embs = EmbeddingService.embed_texts(docs)
+        metas = [{"decision": p["decision"], "reasoning": p["reasoning"], "jurisdiction": p["jurisdiction"]} for p in precedents]
+
+        self.audit_col.upsert(
+            ids=ids,
+            embeddings=embs,
+            documents=docs,
+            metadatas=metas
+        )
+        logger.info(f"Seeded {len(precedents)} audit precedent resolutions.")
+
+    def seed_legal_corpus(self, corpus_dir: str = "backend/data/legal_corpus"):
+        """Seed legal corpus into vector store if empty or refresh partitions."""
         if not os.path.exists(corpus_dir):
             return
 
@@ -188,8 +323,15 @@ class ChromaVectorStore(VectorStoreInterface):
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read()
 
-                # Parse sections
-                statute_name = "Karnataka Municipal Law"
+                # Determine jurisdiction for this file
+                if "national" in filename.lower():
+                    sec_jurisdiction = "national"
+                else:
+                    sec_jurisdiction = normalize_jurisdiction(content[:1000])
+                    if sec_jurisdiction == "_default":
+                        sec_jurisdiction = "karnataka_bengaluru"
+
+                statute_name = "Municipal Law"
                 lines = content.split("\n")
                 current_section = None
                 current_title = ""
@@ -200,14 +342,15 @@ class ChromaVectorStore(VectorStoreInterface):
                         statute_name = line.replace("[STATUTE]:", "").strip()
                     elif line.startswith("[SECTION"):
                         if current_section and current_text:
+                            sec_id = f"{filename[:4].lower()}_{current_section.replace(' ', '_').lower()}"
                             sections.append({
-                                "id": f"{statute_name[:4].lower()}_{current_section.replace(' ', '_').lower()}",
+                                "id": sec_id,
                                 "statute": statute_name,
                                 "section": current_section,
                                 "title": current_title,
-                                "text": "\n".join(current_text).strip()
+                                "text": "\n".join(current_text).strip(),
+                                "jurisdiction": sec_jurisdiction
                             })
-                        # Parse section header e.g. [SECTION 14]: Title
                         header = line.split("]:", 1)
                         sec_part = header[0].replace("[SECTION", "").strip()
                         title_part = header[1].strip() if len(header) > 1 else ""
@@ -219,12 +362,14 @@ class ChromaVectorStore(VectorStoreInterface):
                             current_text.append(line)
 
                 if current_section and current_text:
+                    sec_id = f"{filename[:4].lower()}_{current_section.replace(' ', '_').lower()}"
                     sections.append({
-                        "id": f"{statute_name[:4].lower()}_{current_section.replace(' ', '_').lower()}",
+                        "id": sec_id,
                         "statute": statute_name,
                         "section": current_section,
                         "title": current_title,
-                        "text": "\n".join(current_text).strip()
+                        "text": "\n".join(current_text).strip(),
+                        "jurisdiction": sec_jurisdiction
                     })
 
         if sections:
@@ -237,7 +382,6 @@ def get_vector_store() -> VectorStoreInterface:
     Factory function returning Postgres pgvector if available,
     falling back seamlessly to embedded Chroma.
     """
-    # Check if Postgres backend explicitly requested or auto-detection succeeds
     if settings.VECTOR_STORE_BACKEND in ("postgres", "auto"):
         try:
             import psycopg2
@@ -256,7 +400,7 @@ def get_vector_store() -> VectorStoreInterface:
 
     store = ChromaVectorStore(persist_dir=settings.CHROMA_PERSIST_DIR)
     store.seed_legal_corpus()
+    store.seed_audit_precedents()
     return store
 
 vector_store = get_vector_store()
-

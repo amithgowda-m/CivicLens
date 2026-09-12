@@ -1,7 +1,7 @@
 import logging
 import json
 from typing import Dict, Any, List
-from backend.schemas import CivicLensState, ImpactTag
+from backend.schemas import CivicLensState, ImpactTag, VerificationStatus
 from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.critic")
@@ -20,16 +20,49 @@ Return JSON format:
   "requires_audit": true | false
 }"""
 
+def check_omitted_policy_categories(state: CivicLensState) -> List[str]:
+    """
+    Audits admitted claims for structural policy omissions (e.g. missing objection deadlines,
+    unaddressed environmental/zoning impacts, or unstated authorities).
+    """
+    warnings: List[str] = []
+    verified_claims = state.get("verified_claims", [])
+    admitted = [c for c in verified_claims if c.get("status") == VerificationStatus.ADMITTED.value]
+
+    has_deadline = any(c.get("clause", {}).get("objection_deadline") for c in admitted)
+    has_authority = any(c.get("clause", {}).get("stated_objection_authority") for c in admitted)
+    has_zoning = any(c.get("clause", {}).get("clause_type") == "zoning_regulation" for c in admitted)
+    has_tax = any(c.get("clause", {}).get("clause_type") == "taxation_rule" for c in admitted)
+    has_env = any(c.get("clause", {}).get("clause_type") == "environmental_mandate" for c in admitted)
+
+    if not has_deadline and not has_authority:
+        warnings.append(
+            "Notice does not state an explicit objection submission deadline or addressee. "
+            "Citizens risk missing procedural windows under municipal town planning rules."
+        )
+
+    if (has_zoning or has_tax) and not has_env:
+        warnings.append(
+            "Proposed commercial zoning or development surcharge revisions omit mandatory "
+            "environmental buffer disclosures (e.g. rajakaluve or green cover setbacks)."
+        )
+
+    return warnings
+
 async def critic_node(state: CivicLensState) -> Dict[str, Any]:
     """
-    Critic Agent: Adversarially challenges each impact tag, surfacing overlooked
-    subgroups and arguing counter-perspectives, then merges results directly into ImpactTags.
-    Uses unified batch evaluation for speed and API quota preservation.
+    Critic Agent: Adversarially challenges each impact tag, surfaces overlooked
+    subgroups and counter-perspectives, and checks for structural policy omissions.
     """
     logger.info("Executing Critic Agent...")
     tags = state.get("impact_tags", [])
+    omission_warnings = check_omitted_policy_categories(state)
+
     if not tags:
-        return {"critic_reviewed_tags": []}
+        return {
+            "critic_reviewed_tags": [],
+            "omission_warnings": omission_warnings
+        }
 
     parsed_tags = [ImpactTag.model_validate(t_data) for t_data in tags]
 
@@ -96,6 +129,6 @@ async def critic_node(state: CivicLensState) -> Dict[str, Any]:
         critic_reviewed.append(tag.model_dump())
 
     return {
-        "critic_reviewed_tags": critic_reviewed
+        "critic_reviewed_tags": critic_reviewed,
+        "omission_warnings": omission_warnings
     }
-

@@ -1,0 +1,9 @@
+{
+  "slug": "_default",
+  "name": "Default / Universal Fallback",
+  "aliases": [],
+  "letterhead_patterns": [],
+  "legal_corpus_available": false,
+  "ward_to_authority": {},
+  "default_authority": "Municipal Commissioner / Planning Authority for {jurisdiction_hint} (specific office not on file — verify before submission)"
+}

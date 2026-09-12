@@ -272,7 +272,7 @@ export default function Home() {
             </h1>
             <p className="text-sm text-slate-300 leading-relaxed">
               Upload dense municipal PDF notices (zoning amendments, council agendas, RTI replies). 
-              Our 12-agent network verifies legal claims against Karnataka statutes, checks policy reversals, and drafts ready-to-file objection letters with 100% source line provenance.
+              Our 12-agent network verifies legal claims against statutory legal frameworks, checks policy reversals, and drafts ready-to-file objection letters with 100% source line provenance.
             </p>
           </div>
 

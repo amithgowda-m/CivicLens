@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from backend.schemas import CivicLensState, ReportData, ImpactItem, VerificationStatus
 from backend.llm_client import llm_client
 
@@ -8,12 +8,13 @@ logger = logging.getLogger("civiclens.agent.report_generator")
 async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     """
     Report Generation Agent: Compiles the final bilingual civic impact report
-    with fixed section order, computed verdict, and Kannada translation.
+    with fixed section order, computed verdict, jurisdiction provenance, and Kannada translation.
     """
     logger.info("Executing Report Generation Agent...")
     grounded = state.get("grounded_claims", [])
     critic_tags = state.get("critic_reviewed_tags", [])
     contradictions = state.get("contradictions", [])
+    omission_warnings = state.get("omission_warnings", [])
 
     # Filter admitted claims
     admitted_claims = [c for c in grounded if c.get("status") != VerificationStatus.REJECTED_PRUNED.value]
@@ -84,6 +85,19 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
             seen_contra_notes.add(c_key)
             deduped_contradictions.append(c)
 
+    # Determine document-level jurisdiction and stated authority
+    doc_jurisdiction: Optional[str] = None
+    doc_authority: Optional[str] = None
+    doc_authority_status: Optional[str] = None
+
+    for c in grounded:
+        cl = c.get("clause", {})
+        if not doc_jurisdiction and cl.get("jurisdiction_hint"):
+            doc_jurisdiction = cl.get("jurisdiction_hint")
+        if not doc_authority and cl.get("stated_objection_authority"):
+            doc_authority = cl.get("stated_objection_authority")
+            doc_authority_status = str(cl.get("authority_status") or "")
+
     claim_confidence = [
         {
             "claim_id": c.get("clause", {}).get("id"),
@@ -93,11 +107,15 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
             "char_end": c.get("clause", {}).get("char_end"),
             "nli_score": c.get("nli_score"),
             "llm_score": c.get("llm_judge_score"),
-            "status": c.get("status")
+            "status": c.get("status"),
+            "ward": c.get("clause", {}).get("ward"),
+            "objection_deadline": c.get("clause", {}).get("objection_deadline"),
+            "stated_objection_authority": c.get("clause", {}).get("stated_objection_authority"),
+            "jurisdiction_hint": c.get("clause", {}).get("jurisdiction_hint"),
+            "authority_status": c.get("clause", {}).get("authority_status")
         }
         for c in admitted_claims
     ]
-
 
     # Synthesize policy summary using LLM if available
     claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
@@ -107,12 +125,12 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"LLM Policy Summary generation failed ({e}), using fallback.")
         policy_summary = (
-            f"Municipal notification for Ward 150 concerning setback revisions and commercial property tax updates. "
-            f"The proposed policies establish stringent 3.0m building setbacks while adjusting property tax computation."
+            "Municipal policy notification concerning statutory revisions, property tax regulations, or zoning frameworks. "
+            "The proposed policies establish regulatory guidelines and administrative compliance standards for local citizens."
         )
 
     kannada_translation = {
-        "policy_summary": "ವಾರ್ಡ್ 150 ಕ್ಕೆ ಸಂಬಂಧಿಸಿದಂತೆ ಹಿನ್ನಡೆ ಪರಿಷ್ಕರಣೆ ಮತ್ತು ವಾಣಿಜ್ಯ ಆಸ್ತಿ ತೆರಿಗೆ ನವೀಕರಣದ ಪುರಸಭೆ ಅಧಿಸೂಚನೆ.",
+        "policy_summary": "ಪುರಸಭೆ ಅಧಿಸೂಚನೆಯು ನಿಯಮಾವಳಿಗಳು, ತೆರಿಗೆ ಪರಿಷ್ಕರಣೆ ಅಥವಾ ವಲಯ ರಚನೆಗಳಿಗೆ ಸಂಬಂಧಿಸಿದೆ.",
         "overall_verdict": "ಮಿಶ್ರಿತ (Mixed)",
         "positive_impacts": ["ನಾಗರಿಕ ಆಡಳಿತ ಅನುಸರಣೆ ಮತ್ತು ನಿಯಂತ್ರಣ ಸ್ಪಷ್ಟತೆ."],
         "negative_impacts": ["ಸಣ್ಣ ವ್ಯಾಪಾರಿಗಳ ಮೇಲಿನ ಕಾರ್ಯಾಚರಣಾ ಹೊರೆ ಹೆಚ್ಚಳ."]
@@ -129,9 +147,12 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         claim_confidence=claim_confidence,
         policy_contradictions=deduped_contradictions,
         overall_verdict=verdict,
-
         dropped_claims_count=dropped_count,
-        kannada_translation=kannada_translation
+        kannada_translation=kannada_translation,
+        jurisdiction=doc_jurisdiction,
+        stated_objection_authority=doc_authority,
+        authority_status=doc_authority_status,
+        omission_warnings=omission_warnings
     )
 
     return {

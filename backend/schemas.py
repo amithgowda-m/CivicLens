@@ -20,6 +20,7 @@ class GroundingStatus(str, Enum):
     MATCHED = "matched"
     CONTRADICTORY = "contradictory"
     NOT_FOUND = "not_found"
+    CORPUS_UNAVAILABLE = "corpus_unavailable"
 
 class Clause(BaseModel):
     id: str
@@ -32,6 +33,10 @@ class Clause(BaseModel):
     objection_deadline: Optional[str] = None
     cited_legal_basis: Optional[str] = None
     typology: Optional[TypologyCategory] = None
+    stated_objection_authority: Optional[str] = None
+    jurisdiction_hint: Optional[str] = None
+    authority_status: Optional[VerificationStatus] = None
+    extraction_source: List[str] = Field(default_factory=lambda: ["regex"])
 
 class VerifiedClaim(BaseModel):
     clause: Clause
@@ -47,12 +52,13 @@ class VerifiedClaim(BaseModel):
 
 class LegalGroundingResult(BaseModel):
     citation: str
-    grounded: bool
+    grounded: Optional[bool] = None
     grounding_status: GroundingStatus
     matched_statute_section: Optional[str] = None
     statute_name: Optional[str] = None
     statute_excerpt: Optional[str] = None
     notes: Optional[str] = None
+    jurisdiction: Optional[str] = None
 
 class ImpactTag(BaseModel):
     claim_id: str
@@ -96,6 +102,10 @@ class ReportData(BaseModel):
     overall_verdict: Literal["positive", "negative", "mixed"]
     dropped_claims_count: int = 0
     kannada_translation: Optional[Dict[str, Any]] = None
+    jurisdiction: Optional[str] = None
+    stated_objection_authority: Optional[str] = None
+    authority_status: Optional[str] = None
+    omission_warnings: List[str] = Field(default_factory=list)
 
 class ActionArtifact(BaseModel):
     action_type: Literal["objection_letter", "awareness_summary"]

@@ -1,0 +1,10 @@
+[STATUTE]: Environment Protection Act 1986
+[ACT_NUMBER]: Central Act No. 29 of 1986
+
+[SECTION 3]: Power of Central Government to Take Measures to Protect and Improve Environment
+(1) Subject to the provisions of this Act, the Central Government shall have the power to take all such measures as it deems necessary or expedient for the purpose of protecting and improving the quality of the environment and preventing, controlling and abating environmental pollution.
+(2) Such measures include planning and execution of a nation-wide programme for the prevention, control and abatement of environmental pollution, and laying down standards for the quality of environment.
+
+[SECTION 5]: Direction on Environmental Clearance and Buffer Protection
+(1) The Central Government may, in the exercise of its powers and performance of its functions under this Act, issue directions in writing to any person, officer or any authority and such person, officer or authority shall be bound to comply with such directions.
+(2) Directions include the closure, prohibition or regulation of any industry, operation or process, including commercial activity within designated eco-sensitive zones and wetland buffer areas.

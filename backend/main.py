@@ -298,6 +298,20 @@ async def resolve_audit(document_id: str, resolution: AuditResolutionRequest):
             else:
                 c_copy["status"] = "REJECTED_PRUNED"
             updated_claims.append(c_copy)
+
+            stated_auth = c.get("clause", {}).get("stated_objection_authority")
+            if stated_auth:
+                try:
+                    from backend.vector_store import vector_store
+                    vector_store.upsert_audit_resolution({
+                        "id": f"audit_{resolution.claim_id}",
+                        "authority_claim": stated_auth,
+                        "decision": "ADMITTED" if act == "APPROVE" else "REJECTED_PRUNED",
+                        "reasoning": resolution.notes or f"Human auditor {act.lower()}ed authority claim.",
+                        "jurisdiction": c.get("clause", {}).get("jurisdiction_hint", "_default")
+                    })
+                except Exception as ex:
+                    logger.warning(f"Could not persist audit resolution precedent: {ex}")
         else:
             updated_claims.append(c)
 
@@ -347,5 +361,10 @@ async def get_report(document_id: str):
             return state.values["report"]
     except Exception as e:
         logger.warning(f"LangGraph state lookup failed for {document_id}: {e}")
+
+    # If document is known and being processed, return 200 with status="processing"
+    # so frontend polling does not produce 404 console errors
+    if doc:
+        return {"status": "processing", "document_id": document_id, "report": None}
 
     raise HTTPException(status_code=404, detail="Report not generated yet for this document.")

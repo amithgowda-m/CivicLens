@@ -1,0 +1,41 @@
+{
+  "slug": "karnataka_bengaluru",
+  "name": "Karnataka / Greater Bengaluru Area",
+  "aliases": [
+    "karnataka",
+    "bengaluru",
+    "bangalore",
+    "bda",
+    "gba",
+    "karnataka gazette",
+    "karnataka town and country planning",
+    "ktcp",
+    "greater bengaluru governance act",
+    "gbga",
+    "bellandur",
+    "kumara park"
+  ],
+  "letterhead_patterns": [
+    "Bangalore Development Authority",
+    "Greater Bengaluru Authority",
+    "Bruhat Bengaluru Mahanagara Palike",
+    "Government of Karnataka",
+    "Karnataka Gazette"
+  ],
+  "legal_corpus_available": true,
+  "ward_to_authority": {
+    "cv_raman_nagar": "Municipal Commissioner, Bengaluru Central City Corporation",
+    "gandhinagar": "Municipal Commissioner, Bengaluru Central City Corporation",
+    "mahadevapura": "Municipal Commissioner, Bengaluru East City Corporation",
+    "kr_puram": "Municipal Commissioner, Bengaluru East City Corporation",
+    "jayanagar": "Municipal Commissioner, Bengaluru South City Corporation",
+    "bommanahalli": "Municipal Commissioner, Bengaluru South City Corporation",
+    "rr_nagar": "Municipal Commissioner, Bengaluru West City Corporation",
+    "malleswaram": "Municipal Commissioner, Bengaluru West City Corporation",
+    "byatarayanapura": "Municipal Commissioner, Bengaluru North City Corporation",
+    "yelahanka": "Municipal Commissioner, Bengaluru North City Corporation",
+    "150": "Municipal Commissioner, Bengaluru East City Corporation",
+    "bellandur": "Municipal Commissioner, Bengaluru East City Corporation"
+  },
+  "default_authority": "Municipal Commissioner, the relevant City Corporation (confirm specific local corporation for this ward — GBA 5-corporation structure varies by area)"
+}

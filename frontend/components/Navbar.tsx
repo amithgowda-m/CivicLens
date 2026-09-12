@@ -19,7 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({ reliabilityScore }) => {
             <h1 className="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-sky-400 bg-clip-text text-transparent">
               CivicLens
             </h1>
-            <p className="text-xs text-slate-400">Karnataka Municipal Transparency Network</p>
+            <p className="text-xs text-slate-400">Multi-Jurisdiction Civic Transparency Network</p>
           </div>
         </div>
 

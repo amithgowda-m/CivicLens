@@ -171,46 +171,52 @@ async def test_action_agent():
 @pytest.mark.asyncio
 async def test_hitl_interrupt_and_resume():
     """Verify LangGraph pauses before human_audit_gate when audit_pending is true and resumes on state update."""
-    app = build_civiclens_graph(interrupt_audit=True)
-    initial_state = {
-        "document_id": "test_doc_hitl",
-        "filename": "hitl_notice.pdf",
-        "pages_text": [
-            "Notice regarding Ward 150 building setback guidelines and parking standards."
-        ],
-        "raw_clauses": [
-            {
-                "id": "cl_ambiguous",
-                "text": "Proposed amendment: Building setback guidelines may be conditionally revised.",
-                "page": 1,
-                "char_start": 0,
-                "char_end": 70,
-                "clause_type": "zoning_regulation",
-                "ward": "150",
-                "objection_deadline": "30 days",
-                "cited_legal_basis": "KTCP Act",
-                "typology": "land_use"
-            }
-        ]
-    }
-    config = {"configurable": {"thread_id": "test_thread_hitl"}}
+    orig_audit = settings.AUTO_APPROVE_PENDING_AUDIT
+    settings.AUTO_APPROVE_PENDING_AUDIT = False
+    try:
+        app = build_civiclens_graph(interrupt_audit=True)
+        initial_state = {
+            "document_id": "test_doc_hitl",
+            "filename": "hitl_notice.pdf",
+            "pages_text": [
+                "Notice regarding Ward 150 building setback guidelines and parking standards."
+            ],
+            "raw_clauses": [
+                {
+                    "id": "cl_ambiguous",
+                    "text": "Proposed amendment: Building setback guidelines may be conditionally revised.",
+                    "page": 1,
+                    "char_start": 0,
+                    "char_end": 70,
+                    "clause_type": "zoning_regulation",
+                    "ward": "150",
+                    "objection_deadline": "30 days",
+                    "cited_legal_basis": "KTCP Act",
+                    "stated_objection_authority": "Building Setback Committee",
+                    "typology": "land_use"
+                }
+            ]
+        }
+        config = {"configurable": {"thread_id": "test_thread_hitl"}}
 
-    # Execute up to interrupt
-    step_state = await app.ainvoke(initial_state, config=config)
-    snapshot = app.get_state(config)
-    # Graph pauses before human_audit_gate
-    assert "human_audit_gate" in snapshot.next
+        # Execute up to interrupt
+        step_state = await app.ainvoke(initial_state, config=config)
+        snapshot = app.get_state(config)
+        # Graph pauses before human_audit_gate
+        assert "human_audit_gate" in snapshot.next
 
-    # Simulate human auditor approving the pending claim via update_state
-    app.update_state(
-        config,
-        {"audit_pending": False},
-        as_node="human_audit_gate"
-    )
+        # Simulate human auditor approving the pending claim via update_state
+        app.update_state(
+            config,
+            {"audit_pending": False},
+            as_node="human_audit_gate"
+        )
 
-    # Resume execution to completion
-    resumed_state = await app.ainvoke(None, config=config)
-    assert resumed_state.get("report") is not None
+        # Resume execution to completion
+        resumed_state = await app.ainvoke(None, config=config)
+        assert resumed_state.get("report") is not None
+    finally:
+        settings.AUTO_APPROVE_PENDING_AUDIT = orig_audit
 
 def test_eval_harness_empty():
     """Verify evaluation harness reports awaiting_gold_data and None score when empty."""

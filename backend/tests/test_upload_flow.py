@@ -1,17 +1,21 @@
 import asyncio
+import pytest
 import httpx
 from backend.main import app
 from backend.tests.test_checkpoint2 import create_valid_test_pdf
 
+@pytest.mark.asyncio
 async def test_upload_and_analyze():
     transport = httpx.ASGITransport(app=app)
     pdf_bytes = create_valid_test_pdf()
     files = {"file": ("municipal_order.pdf", pdf_bytes, "application/pdf")}
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        res = await client.post("/api/documents/upload?analyze=true", files=files)
-        print("Upload + analyze status:", res.status_code)
+        res = await client.post("/api/documents/upload", files=files)
         assert res.status_code == 200
-        data = res.json()
+        doc_id = res.json()["document_id"]
+        res2 = await client.post(f"/api/documents/{doc_id}/analyze")
+        assert res2.status_code == 200
+        data = res2.json()
         print("Doc ID:", data["document_id"])
         print("Pages count:", data["pages_count"])
         print("Raw clauses extracted:", len(data["raw_clauses"]))

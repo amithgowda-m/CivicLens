@@ -25,3 +25,4 @@ build/
 dist/
 .DS_Store
 Thumbs.db
+scratch/

@@ -32,6 +32,10 @@ export interface ReportDataPayload {
   policy_contradictions: any[];
   overall_verdict: 'positive' | 'negative' | 'mixed';
   dropped_claims_count?: number;
+  jurisdiction?: string;
+  stated_objection_authority?: string;
+  authority_status?: string;
+  omission_warnings?: string[];
   kannada_translation?: {
     policy_summary?: string;
     overall_verdict?: string;
@@ -240,6 +244,33 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 ? report.kannada_translation?.policy_summary
                 : report.policy_summary}
             </p>
+
+            {/* Jurisdiction and Addressee Badges */}
+            {(report.jurisdiction || report.stated_objection_authority) && (
+              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/80">
+                {report.jurisdiction && (
+                  <span className="px-2.5 py-1 rounded-md bg-sky-950/80 text-sky-300 border border-sky-800 text-[11px] font-mono">
+                    Jurisdiction: <strong>{report.jurisdiction.replace(/_/g, ' ')}</strong>
+                  </span>
+                )}
+                {report.stated_objection_authority && (
+                  <span className="px-2.5 py-1 rounded-md bg-slate-900 text-slate-300 border border-slate-800 text-[11px]">
+                    Addressee: <strong>{report.stated_objection_authority}</strong>
+                    {report.authority_status && (
+                      <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        report.authority_status === 'ADMITTED'
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : report.authority_status === 'REJECTED_PRUNED'
+                          ? 'bg-rose-950 text-rose-400 border border-rose-800'
+                          : 'bg-amber-950 text-amber-400 border border-amber-800'
+                      }`}>
+                        {report.authority_status}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Section 2: Stakeholders Impacted */}
@@ -327,13 +358,25 @@ export const ReportView: React.FC<ReportViewProps> = ({
             </div>
           </div>
 
-          {/* Section 4: Risk Flags (was 5) */}
-          {riskFlags.length > 0 && (
+          {/* Section 4: Risk Flags & Policy Omissions */}
+          {(riskFlags.length > 0 || (report.omission_warnings && report.omission_warnings.length > 0)) && (
             <div className="glass-panel rounded-2xl p-6 border border-amber-900/40 bg-amber-950/10">
               <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4" />
-                <span>4. Adversarial Risk Flags &amp; Overlooked Subgroups</span>
+                <span>4. Adversarial Risk Flags &amp; Policy Omissions</span>
               </h3>
+
+              {/* Omission Warnings */}
+              {report.omission_warnings && report.omission_warnings.length > 0 && (
+                <div className="mb-3 space-y-2">
+                  {report.omission_warnings.map((warning, wIdx) => (
+                    <div key={wIdx} className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/50 text-rose-300 text-xs">
+                      <strong>⚠ Policy Omission Warning:</strong> {warning}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <ul className="space-y-2">
                 {riskFlags.map((flag, idx) => (
                   <li key={idx} className="text-xs text-amber-200 bg-amber-950/40 p-2.5 rounded-lg border border-amber-900/50">
@@ -344,32 +387,48 @@ export const ReportView: React.FC<ReportViewProps> = ({
             </div>
           )}
 
-          {/* Section 5: Legal Grounding (was 6) */}
+          {/* Section 5: Legal Grounding */}
           <div className="glass-panel rounded-2xl p-6 border border-slate-800">
             <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
               <Scale className="w-4 h-4" />
-              <span>5. Statutory Legal Grounding (Karnataka Law)</span>
+              <span>5. Statutory Legal Grounding {report.jurisdiction ? `(${report.jurisdiction.replace(/_/g, ' ')})` : ''}</span>
             </h3>
             <div className="space-y-3">
-              {legalGrounding.map((item, idx) => (
-                <div key={idx} className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-sky-300">{item.citation || 'Karnataka Statute'}</span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        item.grounded ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'
-                      }`}
-                    >
-                      {item.grounding_status || (item.grounded ? 'MATCHED' : 'NOT_FOUND')}
-                    </span>
+              {legalGrounding.map((item, idx) => {
+                const status = (item.grounding_status || (item.grounded ? 'matched' : 'not_found')).toLowerCase();
+                return (
+                  <div key={idx} className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-sky-300">{item.citation || 'Statute Citation'}</span>
+                      {status === 'matched' ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                          MATCHED (Grounded)
+                        </span>
+                      ) : status === 'contradictory' ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800">
+                          CONTRADICTORY (Violates Statute)
+                        </span>
+                      ) : status === 'corpus_unavailable' ? (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-slate-400 border border-slate-700">
+                          CORPUS UNAVAILABLE (National Partition Only)
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800">
+                          NOT FOUND (Corpus Checked)
+                        </span>
+                      )}
+                    </div>
+                    {item.notes && (
+                      <p className="text-slate-400 text-[11px] mb-1">{item.notes}</p>
+                    )}
+                    {item.statute_excerpt && (
+                      <p className="text-slate-400 text-[11px] font-mono mt-1 bg-slate-950/60 p-2 rounded border border-slate-800/80">
+                        &ldquo;{item.statute_excerpt}&rdquo;
+                      </p>
+                    )}
                   </div>
-                  {item.statute_excerpt && (
-                    <p className="text-slate-400 text-[11px] font-mono mt-1 bg-slate-950/60 p-2 rounded border border-slate-800/80">
-                      &ldquo;{item.statute_excerpt}&rdquo;
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
