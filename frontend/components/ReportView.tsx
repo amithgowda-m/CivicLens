@@ -9,7 +9,6 @@ import {
   Scale,
   Users,
   ShieldCheck,
-  Globe,
   ExternalLink,
   ArrowRight,
   UserCheck,
@@ -36,12 +35,6 @@ export interface ReportDataPayload {
   stated_objection_authority?: string;
   authority_status?: string;
   omission_warnings?: string[];
-  kannada_translation?: {
-    policy_summary?: string;
-    overall_verdict?: string;
-    positive_impacts?: string[];
-    negative_impacts?: string[];
-  };
 }
 
 interface ReportViewProps {
@@ -57,7 +50,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
   onOpenAction,
   onResolveAudit,
 }) => {
-  const [lang, setLang] = useState<'en' | 'kn'>('en');
   const [isGeneratingAction, setIsGeneratingAction] = useState(false);
   const [activeImpact, setActiveImpact] = useState<ImpactItemData | null>(null);
   const [isImpactDetailOpen, setIsImpactDetailOpen] = useState(false);
@@ -86,8 +78,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
       setIsGeneratingAction(false);
     }
   };
-
-  const isKannadaAvailable = Boolean(report.kannada_translation?.policy_summary);
 
   // Deduplicate array data to guarantee clean, non-repetitive UI presentation
   const stakeholders = Array.from(new Set(report.stakeholders_impacted || []));
@@ -176,27 +166,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Language Toggle */}
-          <div className="flex items-center bg-slate-900 rounded-xl p-1 border border-slate-800">
-            <button
-              onClick={() => setLang('en')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                lang === 'en' ? 'bg-sky-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              English
-            </button>
-            <button
-              onClick={() => setLang('kn')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1 ${
-                lang === 'kn' ? 'bg-sky-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>ಕನ್ನಡ</span>
-            </button>
-          </div>
-
           {/* Verdict Gated Action Button */}
           <button
             type="button"
@@ -240,9 +209,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <span>1. Executive Policy Summary</span>
             </h3>
             <p className="text-sm text-slate-200 leading-relaxed font-sans">
-              {lang === 'kn' && isKannadaAvailable
-                ? report.kannada_translation?.policy_summary
-                : report.policy_summary}
+              {report.policy_summary}
             </p>
 
             {/* Jurisdiction and Addressee Badges */}

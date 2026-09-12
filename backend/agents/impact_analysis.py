@@ -6,10 +6,14 @@ from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.impact_analysis")
 
-SYSTEM_PROMPT = """You are a citizen impact analysis agent for municipal document claims.
+SYSTEM_PROMPT = """You are a citizen impact analysis agent for municipal and civic policy documents.
 Given a verified municipal document clause, determine:
 1. polarity: "positive", "negative", or "neutral_mixed"
-2. affected_group: specific, concrete stakeholder group affected (e.g. "Adjacent residential property owners", "Small commercial shop tenants", "Pedestrian commuters", "Ward 150 residents"). Never use vague generic filler.
+   CRITICAL CIVIC BALANCE INSTRUCTIONS:
+   - Procedural safeguards (e.g. mandatory public notice periods, 15-day/30-day objection submission windows, public hearing rights, citizen representation, appeal mechanisms, environmental buffer protections) safeguard residents from unilateral or arbitrary executive action; classify these procedural protections as "positive".
+   - Unilateral burdens (e.g. sudden tax hikes, fee increases, reduced developable area without compensation, shortened appeal windows, retroactive penalties) are "negative" for affected taxpayers or businesses.
+   - Dual-effect clauses (e.g. increased building setbacks that widen pedestrian footpaths but restrict commercial floor space) are "neutral_mixed".
+2. affected_group: specific, concrete stakeholder group affected (e.g. "Ward residents submitting objections", "Adjacent residential property owners", "Small commercial shop tenants", "Pedestrian commuters"). Never use vague generic filler.
 3. reasoning: 1-2 sentence concrete explanation of the civic or economic impact.
 
 Return JSON format:
@@ -75,7 +79,15 @@ async def impact_analysis_node(state: CivicLensState) -> Dict[str, Any]:
                 reasoning=b_imp.get("reasoning", "Municipal policy update affecting local ward governance.")
             )
         else:
-            if typology == "land_use":
+            c_text = clause.get("text", "").lower()
+            if clause.get("objection_deadline") or any(w in c_text for w in ("objection", "suggestion", "notice", "hearing", "representation", "safeguard")):
+                tag = ImpactTag(
+                    claim_id=cid,
+                    polarity="positive",
+                    affected_group="Ward residents and concerned citizen objectors",
+                    reasoning="Statutory objection submission window and public notice safeguard citizen participation rights against unilateral administrative change."
+                )
+            elif typology == "land_use":
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="neutral_mixed",
@@ -88,6 +100,13 @@ async def impact_analysis_node(state: CivicLensState) -> Dict[str, Any]:
                     polarity="negative",
                     affected_group="Small commercial business owners and shop tenants",
                     reasoning="Immediate increase in operational overhead without guaranteed improvement in local municipal services."
+                )
+            elif any(w in c_text for w in ("environment", "buffer", "green", "lake", "tree")):
+                tag = ImpactTag(
+                    claim_id=cid,
+                    polarity="positive",
+                    affected_group="Local ecology and ward residents",
+                    reasoning="Mandatory ecological buffer zones protect public water bodies and urban tree canopy."
                 )
             else:
                 tag = ImpactTag(

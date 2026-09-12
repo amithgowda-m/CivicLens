@@ -5,10 +5,51 @@ from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.report_generator")
 
+CANONICAL_STAKEHOLDER_TAXONOMY = [
+    ("Residential Property Owners & Tenants", ["resident", "residential", "plot owner", "homeowner", "tenant", "housing", "apartment", "neighborhood"]),
+    ("Commercial Businesses & Shopkeepers", ["commercial", "shop", "retail", "business", "merchant", "vendor", "enterprise", "trade"]),
+    ("Real Estate & Infrastructure Developers", ["developer", "builder", "construction", "real estate", "contractor", "infrastructure"]),
+    ("Pedestrians, Commuters & Transit Users", ["pedestrian", "commuter", "transit", "walkway", "traffic", "cyclist", "motorist"]),
+    ("Civic Authorities & Ward Committees", ["ward committee", "municipal", "corporation", "authority", "bda", "bbmp", "council", "officer"]),
+    ("Vulnerable & Informal Demographics", ["low-income", "slum", "informal", "street vendor", "senior", "differently abled", "daily wage"]),
+    ("Environmental & Community Groups", ["environment", "lake", "green cover", "buffer", "tree", "civic group", "citizen", "public interest"])
+]
+
+def synthesize_stakeholder_groups(raw_groups: List[str]) -> List[str]:
+    """
+    Synthesizes and clusters raw stakeholder descriptions into 5-7 clean canonical stakeholder groups.
+    Prevents repetitive fragmentation (e.g. 20+ variations of developers or shopkeepers).
+    """
+    canonical_selected = set()
+    unmatched = []
+
+    for raw in raw_groups:
+        r_low = raw.lower()
+        matched = False
+        for canon_name, keywords in CANONICAL_STAKEHOLDER_TAXONOMY:
+            if any(kw in r_low for kw in keywords):
+                canonical_selected.add(canon_name)
+                matched = True
+                break
+        if not matched and len(raw.strip()) > 3:
+            unmatched.append(raw.strip())
+
+    ordered_groups = [canon for canon, _ in CANONICAL_STAKEHOLDER_TAXONOMY if canon in canonical_selected]
+    for u in unmatched:
+        if len(ordered_groups) >= 7:
+            break
+        if u not in ordered_groups:
+            ordered_groups.append(u)
+
+    if not ordered_groups:
+        ordered_groups = ["General Ward Residents", "Commercial Property Owners", "Municipal Administration"]
+
+    return ordered_groups[:7]
+
 async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     """
-    Report Generation Agent: Compiles the final bilingual civic impact report
-    with fixed section order, computed verdict, jurisdiction provenance, and Kannada translation.
+    Report Generation Agent: Compiles the final civic impact report with fixed section order,
+    computed verdict, consolidated contradiction intelligence, and jurisdiction provenance.
     """
     logger.info("Executing Report Generation Agent...")
     grounded = state.get("grounded_claims", [])
@@ -32,7 +73,9 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     else:
         verdict = "mixed"
 
-    stakeholders = list(dict.fromkeys([t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]))
+    raw_stakeholders = [t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]
+    stakeholders = synthesize_stakeholder_groups(raw_stakeholders)
+
     positives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "positive"]))
     negatives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "negative"]))
 
@@ -55,9 +98,35 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         )
         impacts.append(item.model_dump())
 
-    raw_risk_flags = []
+    # Thematic aggregation of contradictions by prior_doc_id
+    grouped_contradictions: Dict[str, List[Dict[str, Any]]] = {}
     for c in contradictions:
-        raw_risk_flags.append(f"Historical policy contradiction detected: {c.get('notes')}".strip())
+        pid = c.get("prior_doc_id") or "historical_archive"
+        grouped_contradictions.setdefault(pid, []).append(c)
+
+    deduped_contradictions: List[Dict[str, Any]] = []
+    for pid, group in grouped_contradictions.items():
+        sample_clause = group[0].get("prior_clause_text", "").strip()
+        count = len(group)
+        ward_info = f" in Ward {group[0].get('ward')}" if group[0].get("ward") else ""
+        short_sample = (sample_clause[:90] + "...") if len(sample_clause) > 90 else sample_clause
+        aggregated_note = (
+            f"Historical policy variance detected against document {pid[:8]}{ward_info} "
+            f"across {count} related clause{'s' if count > 1 else ''} (e.g. \"{short_sample}\")."
+        )
+        deduped_contradictions.append({
+            "claim_id": group[0].get("claim_id", ""),
+            "ward": group[0].get("ward"),
+            "prior_doc_id": pid,
+            "prior_clause_text": sample_clause,
+            "similarity_score": max((g.get("similarity_score") or 0.0) for g in group),
+            "contradiction_flag": True,
+            "notes": aggregated_note,
+        })
+
+    raw_risk_flags = []
+    for c in deduped_contradictions:
+        raw_risk_flags.append(c.get("notes", "").strip())
     for t in critic_tags:
         for sub in t.get("overlooked_subgroups", []):
             if sub and sub.strip():
@@ -72,18 +141,9 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         lg = c.get("legal_grounding")
         if lg:
             cit = lg.get("citation", "")
-            if cit not in seen_citations:
+            if cit and cit not in seen_citations:
                 seen_citations.add(cit)
                 legal_grounding.append(lg)
-
-    # Deduplicate contradictions by notes/prior_clause
-    seen_contra_notes = set()
-    deduped_contradictions = []
-    for c in contradictions:
-        c_key = (c.get("notes"), c.get("prior_doc_id"), c.get("prior_clause_text", "")[:60])
-        if c_key not in seen_contra_notes:
-            seen_contra_notes.add(c_key)
-            deduped_contradictions.append(c)
 
     # Determine document-level jurisdiction and stated authority
     doc_jurisdiction: Optional[str] = None
@@ -129,13 +189,6 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
             "The proposed policies establish regulatory guidelines and administrative compliance standards for local citizens."
         )
 
-    kannada_translation = {
-        "policy_summary": "ಪುರಸಭೆ ಅಧಿಸೂಚನೆಯು ನಿಯಮಾವಳಿಗಳು, ತೆರಿಗೆ ಪರಿಷ್ಕರಣೆ ಅಥವಾ ವಲಯ ರಚನೆಗಳಿಗೆ ಸಂಬಂಧಿಸಿದೆ.",
-        "overall_verdict": "ಮಿಶ್ರಿತ (Mixed)",
-        "positive_impacts": ["ನಾಗರಿಕ ಆಡಳಿತ ಅನುಸರಣೆ ಮತ್ತು ನಿಯಂತ್ರಣ ಸ್ಪಷ್ಟತೆ."],
-        "negative_impacts": ["ಸಣ್ಣ ವ್ಯಾಪಾರಿಗಳ ಮೇಲಿನ ಕಾರ್ಯಾಚರಣಾ ಹೊರೆ ಹೆಚ್ಚಳ."]
-    }
-
     report = ReportData(
         policy_summary=policy_summary,
         stakeholders_impacted=stakeholders,
@@ -148,7 +201,6 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         policy_contradictions=deduped_contradictions,
         overall_verdict=verdict,
         dropped_claims_count=dropped_count,
-        kannada_translation=kannada_translation,
         jurisdiction=doc_jurisdiction,
         stated_objection_authority=doc_authority,
         authority_status=doc_authority_status,

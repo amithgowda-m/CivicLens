@@ -143,6 +143,52 @@ def extract_stated_authority(text: str, page_text: Optional[str] = None) -> Opti
             if len(cand) >= 5:
                 return cand
 
+FALSE_CITATION_TOKENS = {
+    "exact", "the exact", "impact", "attract", "manufact", "contract", "artifact",
+    "interact", "contact", "react", "enact", "abstract", "compact", "intact",
+    "fact", "tract", "action", "activity", "practice", "actual", "actor", "fraction"
+}
+
+STATUTORY_CITATION_PATTERNS = [
+    # 1. Section / Rule / Article with optional Act: "Section 14-A of the Karnataka Town and Country Planning Act, 1961"
+    re.compile(
+        r"\b(?:Section|Sec\.?|Rule|Article)\s+\d+(?:[-–][A-Za-z0-9]+)*[A-Za-z]*(?:\s*\([0-9a-zA-Z]+\))*"
+        r"(?:\s+(?:of|under|read\s+with)\s+(?:the\s+)?[A-Z][A-Za-z\s]{2,60}?\b(?:Act|Code|Rules?|Regulations?|Ordinance)\b(?:\s*,?\s*\d{4})?)?",
+        re.IGNORECASE
+    ),
+    # 2. Named Act with year or "Act of YYYY": "Karnataka Municipal Corporations Act, 1976"
+    re.compile(
+        r"\b[A-Z][A-Za-z\s]{2,60}?\b(?:Act|Code|Regulations?|Rules?|Ordinance)\b(?:\s*,\s*\d{4}|\s+\d{4}|\s+of\s+\d{4})",
+    ),
+    # 3. Specific Act acronyms/titles with "Act": "KTCP Act", "BBMP Act", "BDA Act", "RTI Act"
+    re.compile(
+        r"\b[A-Z]{2,6}\s+Act\b"
+    )
+]
+
+def extract_statutory_citation(text: str) -> Optional[str]:
+    """
+    Extracts high-precision statutory legal citations with strict word boundaries.
+    Filters out non-statutory false positives ('The exact', 'Manufact', 'Impact', 'attract').
+    """
+    for pat in STATUTORY_CITATION_PATTERNS:
+        m = pat.search(text)
+        if m:
+            cand = m.group(0).strip()
+            cand_clean = re.sub(r"[,\.\s]+$", "", cand)
+            cand_clean = re.sub(
+                r"^(?:Pursuant\s+to\s+(?:the\s+)?|Under\s+(?:the\s+)?|In\s+accordance\s+with\s+(?:the\s+)?|As\s+per\s+(?:the\s+)?|In\s+exercise\s+of\s+powers\s+conferred\s+under\s+(?:the\s+)?)",
+                "",
+                cand_clean,
+                flags=re.IGNORECASE
+            ).strip()
+            cand_lower = cand_clean.lower()
+            
+            # Check false positives
+            if any(cand_lower == fw or cand_lower.endswith(f" {fw}") for fw in FALSE_CITATION_TOKENS):
+                continue
+            if len(cand_clean) >= 5:
+                return cand_clean
     return None
 
 def rule_based_verbatim_extractor(pages_text: List[str], doc_jurisdiction: Optional[str] = None) -> List[Clause]:
@@ -157,7 +203,6 @@ def rule_based_verbatim_extractor(pages_text: List[str], doc_jurisdiction: Optio
 
     clauses: List[Clause] = []
     deadline_regex = re.compile(r"\b(?:within\s+(\d+\s*(?:days?|weeks?|months?)))\b", re.IGNORECASE)
-    act_regex = re.compile(r"([A-Z][A-Za-z\s]+Act(?:,\s*\d{4}|\s+\d{4})?(?:\s+Section\s+\d+[A-Za-z]*)?)", re.IGNORECASE)
 
     clause_counter = 1
     for page_idx, page_content in enumerate(pages_text, start=1):
@@ -249,8 +294,7 @@ def rule_based_verbatim_extractor(pages_text: List[str], doc_jurisdiction: Optio
             deadline_match = deadline_regex.search(verbatim_text)
             deadline = deadline_match.group(1) if deadline_match else None
 
-            act_match = act_regex.search(verbatim_text)
-            citation = act_match.group(1).strip() if act_match else None
+            citation = extract_statutory_citation(verbatim_text)
 
             stated_auth = extract_stated_authority(verbatim_text, page_content)
 
@@ -415,7 +459,11 @@ async def extraction_node(state: CivicLensState) -> Dict[str, Any]:
                                 clause_type=item.get("clause_type", "operative_provision"),
                                 ward=item.get("ward") or extract_ward_number(verbatim_str),
                                 objection_deadline=item.get("objection_deadline"),
-                                cited_legal_basis=item.get("cited_legal_basis"),
+                                cited_legal_basis=(
+                                    extract_statutory_citation(item.get("cited_legal_basis") or "")
+                                    or (item.get("cited_legal_basis") if item.get("cited_legal_basis") and not any(item.get("cited_legal_basis", "").lower() == fw for fw in FALSE_CITATION_TOKENS) else None)
+                                    or extract_statutory_citation(verbatim_str)
+                                ),
                                 stated_objection_authority=item.get("stated_objection_authority") or extract_stated_authority(verbatim_str, p_text),
                                 jurisdiction_hint=doc_jurisdiction,
                                 extraction_source=["llm"]

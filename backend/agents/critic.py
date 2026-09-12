@@ -47,6 +47,22 @@ def check_omitted_policy_categories(state: CivicLensState) -> List[str]:
             "environmental buffer disclosures (e.g. rajakaluve or green cover setbacks)."
         )
 
+    has_safeguard = any(
+        c.get("clause", {}).get("objection_deadline") or
+        any(w in c.get("clause", {}).get("text", "").lower() for w in ("objection", "hearing", "notice", "safeguard"))
+        for c in admitted
+    )
+    tags = state.get("impact_tags", [])
+    has_positive_safeguard = any(
+        t.get("polarity") == "positive" and any(w in t.get("reasoning", "").lower() for w in ("safeguard", "protect", "objection", "notice", "procedural", "participat"))
+        for t in tags
+    )
+    if has_safeguard and not has_positive_safeguard and len(tags) > 2:
+        warnings.append(
+            "Document contains statutory citizen objection windows or procedural safeguards, but the impact assessment "
+            "omitted their protective value for local ward residents."
+        )
+
     return warnings
 
 async def critic_node(state: CivicLensState) -> Dict[str, Any]:

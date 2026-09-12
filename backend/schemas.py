@@ -101,7 +101,6 @@ class ReportData(BaseModel):
     policy_contradictions: List[ContradictionRecord] = Field(default_factory=list)
     overall_verdict: Literal["positive", "negative", "mixed"]
     dropped_claims_count: int = 0
-    kannada_translation: Optional[Dict[str, Any]] = None
     jurisdiction: Optional[str] = None
     stated_objection_authority: Optional[str] = None
     authority_status: Optional[str] = None

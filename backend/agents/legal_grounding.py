@@ -28,6 +28,13 @@ async def legal_grounding_node(state: CivicLensState) -> Dict[str, Any]:
         citation = clause.get("cited_legal_basis")
         item_copy = dict(item)
 
+        # Filter out stray non-statutory words mistakenly passed as citations
+        if citation:
+            cit_clean = str(citation).strip()
+            cit_low = cit_clean.lower()
+            if any(cit_low == fw or cit_low.endswith(f" {fw}") for fw in ("exact", "the exact", "impact", "attract", "manufact", "contract", "artifact", "interact")):
+                citation = None
+
         if citation:
             # Infer jurisdiction if not explicitly specified on the clause
             jurisdiction = clause.get("jurisdiction_hint")
