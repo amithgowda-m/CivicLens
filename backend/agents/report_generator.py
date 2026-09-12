@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, List
 from backend.schemas import CivicLensState, ReportData, VerificationStatus
+from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.report_generator")
 
@@ -57,10 +58,17 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         for c in admitted_claims
     ]
 
-    policy_summary = (
-        f"Municipal notification for Ward 150 concerning setback revisions and commercial property tax updates. "
-        f"The proposed policies establish stringent 3.0m building setbacks while adjusting property tax computation."
-    )
+    # Synthesize policy summary using LLM if available
+    claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
+    try:
+        summary_prompt = f"Synthesize a 2-3 sentence plain-language executive policy summary for citizens based ONLY on these verified clauses:\n{claims_text}"
+        policy_summary = await llm_client.generate_text(summary_prompt, system_prompt="You are a clear civic document summarizer for local citizens. Write in plain, objective language.")
+    except Exception as e:
+        logger.warning(f"LLM Policy Summary generation failed ({e}), using fallback.")
+        policy_summary = (
+            f"Municipal notification for Ward 150 concerning setback revisions and commercial property tax updates. "
+            f"The proposed policies establish stringent 3.0m building setbacks while adjusting property tax computation."
+        )
 
     kannada_translation = {
         "policy_summary": "ವಾರ್ಡ್ 150 ಕ್ಕೆ ಸಂಬಂಧಿಸಿದಂತೆ ಹಿನ್ನಡೆ ಪರಿಷ್ಕರಣೆ ಮತ್ತು ವಾಣಿಜ್ಯ ಆಸ್ತಿ ತೆರಿಗೆ ನವೀಕರಣದ ಪುರಸಭೆ ಅಧಿಸೂಚನೆ.",

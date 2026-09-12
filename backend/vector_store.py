@@ -151,6 +151,68 @@ class ChromaVectorStore(VectorStoreInterface):
         return matched
 
 
+    def seed_legal_corpus(self, corpus_dir: str = "backend/data/legal_corpus"):
+        """Seed legal corpus into vector store if empty."""
+        try:
+            if self.legal_col.count() > 0:
+                return
+        except Exception:
+            pass
+
+        if not os.path.exists(corpus_dir):
+            return
+
+        sections = []
+        for filename in os.listdir(corpus_dir):
+            if filename.endswith(".txt"):
+                filepath = os.path.join(corpus_dir, filename)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Parse sections
+                statute_name = "Karnataka Municipal Law"
+                lines = content.split("\n")
+                current_section = None
+                current_title = ""
+                current_text = []
+
+                for line in lines:
+                    if line.startswith("[STATUTE]:"):
+                        statute_name = line.replace("[STATUTE]:", "").strip()
+                    elif line.startswith("[SECTION"):
+                        if current_section and current_text:
+                            sections.append({
+                                "id": f"{statute_name[:4].lower()}_{current_section.replace(' ', '_').lower()}",
+                                "statute": statute_name,
+                                "section": current_section,
+                                "title": current_title,
+                                "text": "\n".join(current_text).strip()
+                            })
+                        # Parse section header e.g. [SECTION 14]: Title
+                        header = line.split("]:", 1)
+                        sec_part = header[0].replace("[SECTION", "").strip()
+                        title_part = header[1].strip() if len(header) > 1 else ""
+                        current_section = f"Section {sec_part}"
+                        current_title = title_part
+                        current_text = [line]
+                    else:
+                        if current_section:
+                            current_text.append(line)
+
+                if current_section and current_text:
+                    sections.append({
+                        "id": f"{statute_name[:4].lower()}_{current_section.replace(' ', '_').lower()}",
+                        "statute": statute_name,
+                        "section": current_section,
+                        "title": current_title,
+                        "text": "\n".join(current_text).strip()
+                    })
+
+        if sections:
+            self.upsert_legal_sections(sections)
+            logger.info(f"Seeded {len(sections)} legal statute sections into vector store.")
+
+
 def get_vector_store() -> VectorStoreInterface:
     """
     Factory function returning Postgres pgvector if available,
@@ -170,10 +232,12 @@ def get_vector_store() -> VectorStoreInterface:
             )
             conn.close()
             logger.info("Connected to Postgres/pgvector successfully.")
-            # Note: For hackathon offline environments without docker running, Chroma is initialized
         except Exception as e:
             logger.info(f"Postgres not reachable ({e}). Using embedded Chroma fallback.")
 
-    return ChromaVectorStore(persist_dir=settings.CHROMA_PERSIST_DIR)
+    store = ChromaVectorStore(persist_dir=settings.CHROMA_PERSIST_DIR)
+    store.seed_legal_corpus()
+    return store
 
 vector_store = get_vector_store()
+

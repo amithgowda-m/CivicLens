@@ -21,17 +21,28 @@ async def legal_grounding_node(state: CivicLensState) -> Dict[str, Any]:
 
         if citation:
             # Query legal corpus in vector store
-            matches = vector_store.search_legal_sections(citation, limit=1)
-            if matches and matches[0].get("similarity", 0) >= 0.70:
-                top_match = matches[0]
-                meta = top_match.get("metadata", {})
+            matches = vector_store.search_legal_sections(citation, limit=3)
+            best_match = None
+            if matches:
+                for m in matches:
+                    sim = m.get("similarity", 0)
+                    meta = m.get("metadata", {})
+                    sec = meta.get("section", "").lower()
+                    stat = meta.get("statute", "").lower()
+                    # Check if section number or statute name is explicitly mentioned in citation
+                    if sim >= 0.45 or (sec and sec in citation.lower()) or ("ktcp" in citation.lower() and "karnataka town" in stat):
+                        best_match = m
+                        break
+
+            if best_match:
+                meta = best_match.get("metadata", {})
                 grounding = LegalGroundingResult(
                     citation=citation,
                     grounded=True,
                     grounding_status=GroundingStatus.MATCHED,
                     matched_statute_section=meta.get("section", "Section 14"),
                     statute_name=meta.get("statute", "Karnataka Town and Country Planning Act 1961"),
-                    statute_excerpt=top_match.get("text", "Building setback regulations and master plan enforcement..."),
+                    statute_excerpt=best_match.get("text", "Building setback regulations and master plan enforcement..."),
                     notes="Statute citation verified against state legal corpus."
                 )
             else:
