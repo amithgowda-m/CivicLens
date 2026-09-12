@@ -93,15 +93,38 @@ def find_illustrations(text: str) -> List[Tuple[int, int]]:
         ills.append((start, end))
     return ills
 
+CIVIC_STOPWORDS = {
+    "committee", "committees", "sabha", "sabhas", "development", "fund", "funds",
+    "area", "areas", "office", "officer", "councillor", "councillors", "member",
+    "members", "boundary", "boundaries", "from", "which", "to", "the", "of",
+    "in", "by", "for", "under", "each", "every", "all", "any", "such", "said",
+    "new", "plan", "plans", "corporation", "corporations", "authority", "rule", "rules", "level"
+}
+
+def extract_ward_number(text: str) -> Optional[str]:
+    """Extracts a valid municipal ward number or name, filtering out civic administrative stopwords."""
+    # 1. Numeric ward pattern: "Ward 150", "Ward No. 12", "Ward Number 4", "Ward 42A"
+    num_match = re.search(r"\bward\s*(?:no\.?|number)?\s*[:\-]?\s*(\d+[A-Za-z]?)\b", text, re.IGNORECASE)
+    if num_match:
+        return num_match.group(1).strip()
+
+    # 2. Named ward pattern (must not be an administrative stopword like 'Committee' or 'from')
+    name_match = re.search(r"\bward\s+(?:no\.?|number)?\s*[:\-]?\s*([A-Za-z]+)\b", text, re.IGNORECASE)
+    if name_match:
+        cand = name_match.group(1).strip()
+        if cand.lower() not in CIVIC_STOPWORDS:
+            return cand
+
+    return None
+
 def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
     """
     Deterministic rule-based extractor that segments text into complete legal clauses
-    (provisos, multi-line operative sections, complete Illustration blocks).
+    (provisos, multi-line operative sections, discrete definitions, complete Illustration blocks).
     Applies auditable validation filters with exemptions for short deadline/citation clauses.
     Guarantees 100% verbatim quotes with exact character offsets.
     """
     clauses: List[Clause] = []
-    ward_regex = re.compile(r"\b(?:ward\s*(?:no\.?|number)?\s*(\d+|[A-Za-z]+))\b", re.IGNORECASE)
     deadline_regex = re.compile(r"\b(?:within\s+(\d+\s*(?:days?|weeks?|months?)))\b", re.IGNORECASE)
     act_regex = re.compile(r"([A-Z][A-Za-z\s]+Act(?:,\s*\d{4}|\s+\d{4})?(?:\s+Section\s+\d+[A-Za-z]*)?)", re.IGNORECASE)
 
@@ -112,13 +135,14 @@ def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
 
         illustrations = find_illustrations(page_content)
 
-        # Structural markers outside illustrations
+        # Structural markers outside illustrations (including definition numbers with quotes)
         pattern = re.compile(
             r"(?:^|\n)\s*(?="
             r"Illustration\s*[:\-]|"
             r"Provided\s+(?:further\s+|also\s+)?that|"
-            r"\(\d+\)\s+[A-Z]|\([a-z]\)\s+[a-z]|"
-            r"\d+\.\s+[A-Z]"
+            r"\(\d+\)\s*[\"“\u201c\u201d\ufffd\'A-Za-z]|"
+            r"\([a-z]\)\s+[A-Za-z]|"
+            r"\d+\.\s*[\"“\u201c\u201d\ufffd\'A-Za-z]"
             r")",
             re.IGNORECASE
         )
@@ -137,6 +161,12 @@ def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
             s, e = splits[i], splits[i + 1]
             chunk = page_content[s:e].strip()
             if not chunk:
+                continue
+
+            # Skip unmapped CID font artifacts or gazette cover metadata
+            if len(re.findall(r"\(cid:\d+\)", chunk)) > 1:
+                continue
+            if re.search(r"\b(?:DEPARTMENT OF PARLIAMENTARY AFFAIRS|NOTIFICATION NO:\s*DPAL|EXTRAORDINARY GAZETTE)\b", chunk, re.IGNORECASE):
                 continue
 
             is_ill = any(s >= ill_s and e <= ill_e for ill_s, ill_e in illustrations)
@@ -182,9 +212,8 @@ def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
             if not OPERATIVE_PATTERN.search(verbatim_text):
                 continue
 
-            # Extract metadata
-            ward_match = ward_regex.search(verbatim_text)
-            ward = ward_match.group(1) if ward_match else None
+            # Extract validated metadata
+            ward = extract_ward_number(verbatim_text)
 
             deadline_match = deadline_regex.search(verbatim_text)
             deadline = deadline_match.group(1) if deadline_match else None

@@ -420,6 +420,24 @@ def get_ui_html() -> str:
         const status = item.status || 'ADMITTED';
         const pillClass = status === 'ADMITTED' ? 'pill-admitted' : (status === 'PENDING_AUDIT' ? 'pill-pending' : 'pill-rejected');
 
+        const jSource = item.judge_source || 'llm_judge';
+        let judgeBadgeHtml = '';
+        if (jSource === 'llm_judge') {
+          judgeBadgeHtml = `<span class="pill" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">Judge: LLM Verified (${(item.llm_judge_verdict || 'yes').toUpperCase()})</span>`;
+        } else if (jSource === 'containment_fallback') {
+          judgeBadgeHtml = `<span class="pill" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">Judge: Containment Stand-In (${(item.llm_judge_verdict || 'yes').toUpperCase()})</span>`;
+        } else {
+          judgeBadgeHtml = `<span class="pill" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Judge: LLM Offline -> Audit (${(item.llm_judge_verdict || 'partial').toUpperCase()})</span>`;
+        }
+
+        const wardBadge = (clause.ward && clause.ward !== 'None') 
+          ? `<span class="pill pill-tag" style="color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">Ward: ${clause.ward}</span>` 
+          : `<span class="pill pill-tag">Citywide / General</span>`;
+
+        const reasoningHtml = item.llm_judge_reasoning 
+          ? `<div style="margin-top: 6px; font-size: 11px; color: #64748b; font-style: italic;">Audit Note: ${item.llm_judge_reasoning}</div>` 
+          : '';
+
         const card = document.createElement('div');
         card.className = 'clause-card';
         card.innerHTML = `
@@ -427,13 +445,16 @@ def get_ui_html() -> str:
             <div class="clause-badges">
               <span class="pill ${pillClass}">[${idx+1}] ${status}</span>
               <span class="pill pill-tag">Typology: ${clause.typology || 'Unclassified'}</span>
-              ${clause.ward ? `<span class="pill pill-tag">Ward: ${clause.ward}</span>` : ''}
+              ${wardBadge}
+              ${judgeBadgeHtml}
             </div>
             <div class="offset-meta">Page ${clause.page} | Offsets [${clause.char_start}:${clause.char_end}]</div>
           </div>
           <div class="clause-text">"${clause.text}"</div>
-          <div class="offset-meta" style="color: #94a3b8;">
-            Ensemble Gate: NLI Entailment = <strong>${item.nli_score ?? 'N/A'}</strong> | LLM-Judge = <strong>${item.llm_judge_verdict || 'yes'} (${item.llm_judge_score ?? 'N/A'})</strong>
+          <div class="offset-meta" style="color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
+            <div>Gate 1: <strong>NLI Entailment = ${item.nli_score ?? 'N/A'}</strong> ${item.nli_score >= 0.75 ? '✓ (Entailed)' : (item.nli_score < 0.40 ? '✗ (Contradicted/Unrelated)' : '⚠ (Ambiguous / Mid-Range)')}</div>
+            <div>Gate 2: <strong>${jSource === 'llm_judge' ? 'LLM Judge' : (jSource === 'containment_fallback' ? 'Containment Stand-In' : 'LLM Evaluator')} = ${item.llm_judge_verdict || 'partial'} (${item.llm_judge_score ?? 'N/A'})</strong></div>
+            ${reasoningHtml}
           </div>
         `;
         container.appendChild(card);

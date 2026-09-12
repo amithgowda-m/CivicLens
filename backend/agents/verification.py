@@ -54,7 +54,13 @@ class NLIEvaluator:
             else:
                 logits = arr
             probs = torch.softmax(torch.tensor(logits, dtype=torch.float32), dim=-1).tolist()
-            entailment_prob = probs[2] if len(probs) > 2 else 0.85
+            # DeBERTa-v3 NLI label mapping: {0: 'contradiction', 1: 'entailment', 2: 'neutral'}
+            entailment_idx = 1
+            if hasattr(model, "model") and hasattr(model.model, "config"):
+                l2i = getattr(model.model.config, "label2id", {})
+                if "entailment" in l2i:
+                    entailment_idx = l2i["entailment"]
+            entailment_prob = probs[entailment_idx] if len(probs) > entailment_idx else 0.85
             return float(round(entailment_prob, 4))
         except Exception as err:
             logger.error(f"NLI evaluation error: {err}")
@@ -115,7 +121,16 @@ async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
       (score: 0.50, verdict: 'partial') rather than rubber-stamping 'yes' / 0.98.
     """
     global _llm_service_available
-    if os.environ.get("CIVICLENS_MOCK_NLI") != "1" and _llm_service_available is not False:
+    if os.environ.get("CIVICLENS_MOCK_NLI") != "1":
+        # In live mode, if LLM is marked unavailable, route directly to audit without silent containment fallback
+        if _llm_service_available is False:
+            return {
+                "verdict": "partial",
+                "score": 0.50,
+                "reasoning": "[LLM-Judge Offline] Evaluator unavailable; routed to human audit per safety protocol.",
+                "judge_source": "llm_unavailable_audit"
+            }
+
         system_prompt = (
             "You are an impartial municipal audit judge. Evaluate whether the extracted civic claim "
             "follows strictly and verbatim from the provided source text."
@@ -159,7 +174,15 @@ async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
                 "judge_source": "llm_unavailable_audit"
             }
 
-    # Deterministic fallback judge (used only in explicit mock mode or fallback testing)
+        # If LLM returned empty response or unparseable text in live mode, route safely to audit
+        return {
+            "verdict": "partial",
+            "score": 0.50,
+            "reasoning": "[LLM-Judge Error] Empty response received from evaluator; routed to audit.",
+            "judge_source": "llm_unavailable_audit"
+        }
+
+    # Deterministic fallback judge (used ONLY when explicitly running in mock test mode: CIVICLENS_MOCK_NLI=1)
     claim_clean = claim_text.strip().lower()
     premise_clean = premise.lower()
 
