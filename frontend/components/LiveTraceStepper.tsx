@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React from 'react';
 import { CheckCircle2, Loader2, AlertCircle, Cpu, Zap, BarChart2 } from 'lucide-react';
@@ -81,10 +81,21 @@ export const LiveTraceStepper: React.FC<LiveTraceStepperProps> = ({
           const isOnDemand = ON_DEMAND_STAGES.has(stage) && status === 'pending';
           const isFailed = status === 'failed';
 
+          let statusClass = 'bg-slate-900/40 border-slate-800/80 text-slate-500';
+          if (status === 'completed') {
+            statusClass = 'bg-emerald-950/30 border-emerald-800/50 text-emerald-300';
+          } else if (status === 'running') {
+            statusClass = 'bg-sky-950/40 border-sky-500/70 text-sky-300 shadow-lg shadow-sky-500/15 ring-1 ring-sky-500/30';
+          } else if (isFailed) {
+            statusClass = 'bg-red-950/30 border-red-800/50 text-red-400';
+          } else if (isOnDemand) {
+            statusClass = 'bg-amber-950/20 border-amber-800/40 text-amber-400/80';
+          }
+
           return (
             <div
               key={stage}
-              className={p-3.5 rounded-xl border transition-all duration-500 flex items-start space-x-3 }
+              className={`p-3.5 rounded-xl border transition-all duration-500 flex items-start space-x-3 ${statusClass}`}
             >
               <div className="mt-0.5 shrink-0">
                 {status === 'completed' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
