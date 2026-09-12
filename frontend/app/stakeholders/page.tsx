@@ -165,7 +165,7 @@ export default function StakeholdersPage() {
   const filtered = filter === 'all' ? unifiedImpacts : unifiedImpacts.filter((i) => i.polarity === filter);
 
   const handleActionClick = () => {
-    if (report.overall_verdict !== 'positive' && unifiedImpacts.filter(i => i.polarity !== 'positive').length > 0) {
+    if (unifiedImpacts.length > 0) {
       setIsGrievanceOpen(true);
     } else {
       setIsGenerating(true);
@@ -197,14 +197,14 @@ export default function StakeholdersPage() {
           disabled={isGenerating}
           className="btn"
           style={{
-            background: report.overall_verdict === 'positive' ? 'var(--success)' : 'var(--danger)',
+            background: 'var(--danger)',
             color: '#fff',
             opacity: isGenerating ? 0.5 : 1,
           }}
         >
           {isGenerating
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Drafting…</>
-            : <>{report.overall_verdict === 'positive' ? 'Generate Bulletin' : 'Draft Objection'}<ArrowRight className="w-3.5 h-3.5" /></>
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Drafting Objection…</>
+            : <>Draft Objection<ArrowRight className="w-3.5 h-3.5" /></>
           }
         </button>
       </div>
