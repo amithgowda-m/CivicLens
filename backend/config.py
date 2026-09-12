@@ -4,8 +4,8 @@ from typing import Literal
 
 class Settings(BaseSettings):
     # LLM Settings
-    LLM_PROVIDER: Literal["gemini", "anthropic", "openai", "ollama"] = "ollama"
-    LLM_MODEL: str = "llama3.1:8b"
+    LLM_PROVIDER: Literal["gemini", "anthropic", "openai", "groq", "ollama"] = "groq"
+    LLM_MODEL: str = "openai/gpt-oss-120b"
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 3
 
@@ -13,9 +13,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
     HF_TOKEN: str = ""
 
-    # Ollama
+    # Endpoints
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     # Vector Store

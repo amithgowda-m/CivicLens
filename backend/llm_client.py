@@ -46,31 +46,96 @@ class LLMClient:
     ) -> str:
         """
         Unified generation method routing to the configured LLM backend.
-        Defaults to Ollama (offline local) if no external API key is set.
+        Supports automatic failover across Groq, Gemini, Anthropic, OpenAI, and Ollama.
         """
-        effective_provider = self.provider
+        groq_key = settings.GROQ_API_KEY or (settings.OPENAI_API_KEY if settings.OPENAI_API_KEY.startswith("gsk_") else "")
+        providers_to_try = []
 
-        # Check credentials: If an API key is missing for hosted providers, fallback to ollama
-        if effective_provider == "gemini" and not settings.GEMINI_API_KEY:
-            logger.warning("GEMINI_API_KEY not found; falling back to ollama.")
-            effective_provider = "ollama"
-        elif effective_provider == "anthropic" and not settings.ANTHROPIC_API_KEY:
-            logger.warning("ANTHROPIC_API_KEY not found; falling back to ollama.")
-            effective_provider = "ollama"
-        elif effective_provider == "openai" and not settings.OPENAI_API_KEY:
-            logger.warning("OPENAI_API_KEY not found; falling back to ollama.")
-            effective_provider = "ollama"
-
-        if effective_provider == "ollama":
-            return await self._call_ollama(prompt, system_prompt, json_mode)
-        elif effective_provider == "gemini":
-            return await self._call_gemini(prompt, system_prompt, json_mode)
-        elif effective_provider == "anthropic":
-            return await self._call_anthropic(prompt, system_prompt, json_mode)
-        elif effective_provider == "openai":
-            return await self._call_openai(prompt, system_prompt, json_mode)
+        # Determine primary provider
+        primary = self.provider
+        if primary in ("groq", "openai") and groq_key:
+            providers_to_try.append("groq")
+        elif primary == "gemini" and settings.GEMINI_API_KEY:
+            providers_to_try.append("gemini")
+        elif primary == "anthropic" and settings.ANTHROPIC_API_KEY:
+            providers_to_try.append("anthropic")
+        elif primary == "openai" and settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("gsk_"):
+            providers_to_try.append("openai")
+        elif primary == "ollama":
+            providers_to_try.append("ollama")
         else:
-            return await self._call_ollama(prompt, system_prompt, json_mode)
+            if groq_key:
+                providers_to_try.append("groq")
+            elif settings.GEMINI_API_KEY:
+                providers_to_try.append("gemini")
+            else:
+                providers_to_try.append("ollama")
+
+        # Append resilient alternates
+        for alt, has_creds in [
+            ("groq", bool(groq_key)),
+            ("gemini", bool(settings.GEMINI_API_KEY)),
+            ("openai", bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("gsk_"))),
+            ("anthropic", bool(settings.ANTHROPIC_API_KEY)),
+            ("ollama", True),
+        ]:
+            if has_creds and alt not in providers_to_try:
+                providers_to_try.append(alt)
+
+        last_err = None
+        for prov in providers_to_try:
+            try:
+                if prov == "groq":
+                    return await self._call_groq(prompt, system_prompt, json_mode)
+                elif prov == "gemini":
+                    return await self._call_gemini(prompt, system_prompt, json_mode)
+                elif prov == "anthropic":
+                    return await self._call_anthropic(prompt, system_prompt, json_mode)
+                elif prov == "openai":
+                    return await self._call_openai(prompt, system_prompt, json_mode)
+                elif prov == "ollama":
+                    return await self._call_ollama(prompt, system_prompt, json_mode)
+            except Exception as e:
+                logger.warning(f"LLM provider '{prov}' failed ({e}). Checking backup provider...")
+                last_err = e
+                continue
+
+        if last_err:
+            raise last_err
+        raise LLMGenerationError("No LLM provider available.")
+
+    async def _call_groq(self, prompt: str, system_prompt: str, json_mode: bool) -> str:
+        api_key = settings.GROQ_API_KEY or (settings.OPENAI_API_KEY if settings.OPENAI_API_KEY.startswith("gsk_") else "")
+        if not api_key:
+            raise LLMGenerationError("No Groq API key available.")
+
+        url = f"{settings.GROQ_BASE_URL.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        model = self.model
+        if not model or model.startswith("llama3.1:8b") or model.startswith("gpt-4"):
+            model = "openai/gpt-oss-120b"
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.1
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
 
     async def _call_ollama(self, prompt: str, system_prompt: str, json_mode: bool) -> str:
         url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
