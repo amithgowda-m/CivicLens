@@ -16,20 +16,12 @@ def run_evaluation(gold_set_dir: str = "backend/data/gold_test_set") -> Dict[str
     gold_files = [f for f in os.listdir(gold_set_dir) if f.endswith(".json")]
 
     if not gold_files:
-        # Return initial benchmark baseline metrics if no ground-truth files placed yet
         return {
-            "status": "ready",
+            "status": "awaiting_gold_data",
             "eval_documents_count": 0,
-            "system_reliability_score": 0.942,
-            "metrics": {
-                "extraction_precision": 0.935,
-                "extraction_recall": 0.918,
-                "typology_accuracy": 0.960,
-                "grounding_fidelity": 0.945,
-                "impact_agreement": 0.920,
-                "nli_cross_encoder_agreement": 0.952
-            },
-            "note": "Awaiting ground truth documents in backend/data/gold_test_set/"
+            "system_reliability_score": None,
+            "metrics": {},
+            "message": "No evaluation documents found in backend/data/gold_test_set/. Place ground-truth JSON files to compute precision/recall metrics."
         }
 
     total_precision = 0.0

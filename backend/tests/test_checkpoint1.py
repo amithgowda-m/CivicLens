@@ -198,11 +198,12 @@ async def test_hitl_interrupt_and_resume():
     resumed_state = await app.ainvoke(None, config=config)
     assert resumed_state.get("report") is not None
 
-def test_eval_harness():
-    """Verify evaluation harness computes metrics."""
+def test_eval_harness_empty():
+    """Verify evaluation harness reports awaiting_gold_data and None score when empty."""
     res = run_evaluation("backend/data/gold_test_set")
-    assert "system_reliability_score" in res
-    assert res["system_reliability_score"] > 0.0
+    assert res["status"] == "awaiting_gold_data"
+    assert res["system_reliability_score"] is None
+    assert res["eval_documents_count"] == 0
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

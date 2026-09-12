@@ -25,6 +25,8 @@ async def main():
         res_eval = await client.get("/api/eval")
         print("Eval response:", res_eval.status_code, res_eval.json())
         assert res_eval.status_code == 200
+        assert res_eval.json()["status"] == "awaiting_gold_data"
+        assert res_eval.json()["system_reliability_score"] is None
 
         print("--- ALL FASTAPI ENDPOINTS VERIFIED SUCCESSFULLY ---")
 
