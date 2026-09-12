@@ -60,7 +60,15 @@ source backend/.venv/bin/activate
 pip install -r backend/requirements.lock
 ```
 
-### Step 3: Environment Configuration
+### Step 3: Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The frontend UI will be accessible at `http://localhost:3000`.
+
+### Step 4: Environment Configuration
 Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
@@ -89,55 +97,67 @@ Key configuration settings:
 
 ### Agent 3: Extraction Agent
 - **File**: `backend/agents/extraction.py`
-- **Function**: Extracts structured clauses conforming to the `Clause` schema. Source text must be copied verbatim with exact character offsets (`char_start`, `char_end`). Paraphrasing is strictly prohibited at this stage.
+- **Function**: Extracts structured clauses conforming to the `Clause` schema. Employs a union of regex and LLM extraction with span deduplication. Source text is snapped verbatim with exact character offsets (`char_start`, `char_end`).
 
-### Agent 4: Typology Classifier
+### Agent 4: Typology Classifier & Document Classifier
 - **File**: `backend/agents/typology.py`
-- **Function**: Classifies each clause into standard civic typologies: `land_use`, `tax`, `infrastructure`, `environmental`, `budget`, or `other`.
+- **Function**: 
+  1. Clause-level: Classifies each clause into standard civic typologies: `land_use`, `tax`, `infrastructure`, `environmental`, `budget`, or `other`.
+  2. Document-level: Runs autonomous document categorization (`detect_document_typology_and_status`):
+     - Extracts authentic document title from cover/page 1 (e.g. *Revised Master Plan 2015 - Volume III: Zonal Regulations*).
+     - Categorizes document: `enacted_regulation_master_plan`, `draft_consultation_notice`, `council_proceedings_minutes`, `policy_directive`, or `general_civic_document`.
+     - Assigns legal status: `gazetted_enacted_law`, `draft_proposal`, `council_resolution`, `administrative_guideline`, or `public_record`.
+     - Determines recommended citizen action type.
 
 ### Agent 5: Memory & Contradiction Agent
 - **File**: `backend/agents/memory.py`
-- **Function**: Embeds clauses into the vector store keyed by ward and typology. Queries existing historical clauses for the same ward to detect and record policy contradictions.
+- **Function**: Embeds clauses into vector store keyed by ward and typology. Queries historical clauses for the same ward to detect and record policy contradictions. Aggregates findings thematically by prior document ID to prevent duplicate listings.
 
 ### Agent 6: Verification Ensemble Gate
 - **File**: `backend/agents/verification.py`
-- **Function**: Executes two independent verification gates per claim:
-  1. Local Cross-Encoder NLI score (`cross-encoder/nli-deberta-v3-base`).
+- **Function**: Executes dual-gate verification per claim:
+  1. Local Cross-Encoder NLI score (`cross-encoder/nli-deberta-v3-base`) with token-overlap windowing (prevents neutral-bias penalties on authentic tables/definitions).
   2. LLM-Judge evaluation (`yes` / `no` / `partial` + reasoning).
 - **Gating Logic**:
   - `ADMITTED`: NLI >= 0.75 and LLM judge == `yes`.
   - `REJECTED_PRUNED`: NLI < 0.40 and LLM judge == `no`.
   - `PENDING_AUDIT`: Disagreement or borderline scores route to `human_audit_gate`.
 
-### Agent 7: Legal Grounding Agent
+### Agent 7: Pure Document Legal Grounding Agent
 - **File**: `backend/agents/legal_grounding.py`
-- **Function**: Dynamically retrieves statute sections from `backend/data/legal_corpus/` (e.g., Karnataka Town and Country Planning Act 1961, Greater Bengaluru Governance Act 2024). Sets `grounded: bool` and `grounding_status` (`matched`, `contradictory`, `not_found`).
+- **Function**: Grounds cited legal bases strictly against the document's own verified text and statutory context. All external static statutory text files (`*.txt`) have been eliminated, guaranteeing zero hallucinated statutory quotes or synthetic setback numbers:
+  - `MATCHED`: Authentic cited authority; excerpt is taken verbatim from the document clause itself (`grounded: true`).
+  - `NOT_FOUND`: Fictitious/non-existent statutory citations (`grounded: false`).
+  - `CORPUS_UNAVAILABLE`: Unindexed jurisdiction hints (`grounded: false`).
 
 ### Agent 8: Impact Analysis Agent
 - **File**: `backend/agents/impact_analysis.py`
-- **Function**: Evaluates admitted claims. Determines polarity (`positive`, `negative`, `neutral_mixed`) and names specific affected stakeholder groups concretely.
+- **Function**: Evaluates admitted claims. Determines polarity (`positive`, `negative`, `neutral_mixed`) and names specific affected stakeholder groups concretely with context-derived reasoning.
 
 ### Agent 9: Critic Agent (Adversarial)
 - **File**: `backend/agents/critic.py`
-- **Function**: Challenges each impact tag adversarially to surface counterarguments and identify overlooked subgroups. Merges review attributes directly into `ImpactTag` (`critic_confirmed`, `critic_note`, `overlooked_subgroups`).
+- **Function**: Challenges each impact tag adversarially to surface counterarguments and identify overlooked subgroups. Merges review attributes directly into `ImpactTag` (`critic_confirmed`, `critic_note`, `overlooked_subgroups`). Checks for structural policy omission warnings.
 
 ### Agent 10: Report Generation Agent
 - **File**: `backend/agents/report_generator.py`
 - **Function**: Compiles the structured civic report in English using exclusively claims that survived verification and grounding. Fixed section order:
-  1. Policy Summary
-  2. Stakeholders Impacted
+  1. Executive Policy Summary (derived strictly from top verified clauses)
+  2. Stakeholders Impacted (canonical clustering)
   3. Positive Impacts
-  4. Negative Impacts
-  5. Risk Flags
-  6. Legal Grounding
-  7. Claim Confidence (with source offsets)
-  8. Policy Contradictions
+  4. Negative Impacts (with dual-agent Impact + Critic perspectives)
+  5. Adversarial Risk Flags & Policy Omissions
+  6. Statutory Legal Grounding (clause-verbatim excerpts)
+  7. Claim Confidence & Source Offsets
+  8. Policy Contradictions (deduplicated by prior doc ID)
   9. Overall Verdict (`positive`, `negative`, `mixed` — computed mathematically from polarities).
-  - *Note: Bilingual translation is deferred to the final extension stage.*
 
-### Agent 11: Action Agent (On-Demand)
+### Agent 11: Action Agent (On-Demand & Context-Aware)
 - **File**: `backend/agents/action_agent.py`
-- **Function**: Triggered strictly on demand via `POST /api/action`. Generates a formal objection petition if verdict is negative/mixed, or a public awareness bulletin if verdict is positive.
+- **Function**: Triggered on demand via `POST /api/action`. Dynamically produces context-appropriate civic engagement artifacts:
+  - **Enacted Regulations / Master Plans**: Generates a **Citizen Compliance & Rights Guide** (zoning standards, building line rules, grandfathering protections for pre-existing lawful uses, clearance steps, appeal channels). Target deadline is set to `"Enacted Statutory Regulation (In Force)"` with zero fabricated 30-day deadlines.
+  - **Draft Consultation Notices**: Generates a formal objection petition based on citizen grievances.
+  - **Positive Notices**: Generates a community awareness bulletin.
+  - **Council Minutes**: Generates an accountability brief.
 
 ### Agent 12: Evaluation Harness
 - **File**: `backend/agents/eval_harness.py`
@@ -154,7 +174,7 @@ Key configuration settings:
 | `POST` | `/api/upload` | Ingests document file or sample name; returns `document_id` |
 | `WS` | `/ws/trace/{document_id}` | Streams LangGraph events in real-time via `astream_events(v2)` |
 | `POST` | `/api/audit/{document_id}/resolve` | Resolves `PENDING_AUDIT` and resumes paused thread execution |
-| `POST` | `/api/action` | Generates on-demand civic action artifact |
+| `POST` | `/api/action` | Generates on-demand context-aware action artifact (compliance guide / objection petition) |
 | `GET` | `/api/report/{document_id}` | Retrieves generated report object |
 | `GET` | `/api/eval` | Runs evaluation harness and returns reliability metrics |
 
@@ -164,6 +184,7 @@ Key configuration settings:
 
 - [x] **Checkpoint 1**: Scaffold + Docker/Chroma dual backend + Pydantic schemas + LangGraph pipeline stubs + automated test suite passing.
 - [x] **Checkpoint 2**: Extraction + Verification ensemble working on real municipal PDF documents.
-- [x] **Checkpoint 3**: Legal Grounding (KTCP Act 1961 & GBGA 2024 indexing) + Impact Analysis + Critic Agent.
+- [x] **Checkpoint 3**: Multi-partition legal grounding + Impact Analysis + Adversarial Critic Agent.
 - [x] **Checkpoint 4**: Report Generation Agent (English) + On-Demand Action Agent.
-- [x] **Final Stage**: Universal Civic Policy Intelligence & Consolidated Citizen Reporting.
+- [x] **Universal Multi-Doc Extension**: Pure Document Grounding (zero external statutory `.txt` files), autonomous document typology, citizen compliance guide generation, and resilient token-overlap NLI verification.
+
