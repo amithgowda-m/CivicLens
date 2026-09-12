@@ -183,8 +183,20 @@ export default function Home() {
   };
 
   const pollForReport = async (docId: string, attempts = 0, delayMs = 0) => {
-    if (attempts > 90) {
+    // 4.8 minutes max (240 × 1.2s) — enough for large PDFs with Groq rate-limit backoffs
+    if (attempts > 240) {
+      console.warn('Poll timeout — pipeline may still be running');
+      triggerFinalAgents();
       setIsProcessing(false);
+      // Show a partial error event so the trace stepper doesn't stay frozen
+      setEvents((prev) => [
+        ...prev,
+        {
+          stage: 'Report Generation Agent',
+          status: 'failed',
+          details: 'Report polling timed out. Refresh and retry or check backend logs.',
+        },
+      ]);
       return;
     }
     // Wait for animation to finish on first poll attempt
@@ -207,6 +219,7 @@ export default function Home() {
     }
     setTimeout(() => pollForReport(docId, attempts + 1), 1200);
   };
+
 
   const handleResolveAudit = async (claimId: string, approved: boolean) => {
     if (!documentId) return;
