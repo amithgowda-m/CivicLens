@@ -35,12 +35,10 @@ def find_exact_offsets(page_text: str, candidate: str) -> Optional[Tuple[int, in
         return idx, idx + len(candidate), page_text[idx:idx + len(candidate)]
 
     # 2. Whitespace-flexible regex match
-    # Escape candidate tokens and join with flexible whitespace \s+
     words = candidate.strip().split()
     if not words:
         return None
 
-    # Take first 5 and last 5 words if candidate is long
     pattern_str = r"\s+".join(re.escape(w) for w in words)
     try:
         match = re.search(pattern_str, page_text, re.IGNORECASE)
@@ -55,7 +53,6 @@ def find_exact_offsets(page_text: str, candidate: str) -> Optional[Tuple[int, in
     norm_cand = " ".join(words)
     norm_idx = norm_page.lower().find(norm_cand.lower()[:min(len(norm_cand), 40)])
     if norm_idx != -1:
-        # Search approximate span in original page
         first_word = words[0]
         f_idx = page_text.lower().find(first_word.lower())
         if f_idx != -1:
@@ -67,24 +64,45 @@ def find_exact_offsets(page_text: str, candidate: str) -> Optional[Tuple[int, in
 
     return None
 
+ABBREV_PATTERN = re.compile(r"\b(?:Rs|No|Sec|Dr|Mr|Mrs|viz|i\.e|e\.g|Sq|Ft|vol|para)\.$", re.IGNORECASE)
+DATE_OR_CITATION = re.compile(
+    r"\b(?:within\s+\d+\s+(?:days?|weeks?|months?|hours?|working\s+days?)|file\s+objections?|objection\s+deadline|objections?\s+within|Section\s+\d+[A-Za-z]*|Act(?:,\s*|\s+)\d{4}|Rule\s+\d+[A-Za-z]*)\b",
+    re.IGNORECASE
+)
+OPERATIVE_PATTERN = re.compile(
+    r"(?:setback|far|zoning|land\s+use|building\s+height|coverage|tax|cess|fee|penalty|rate|valuation|assessment|road|drainage|water|sewer|infrastructure|pipeline|environment|green|tree|lake|buffer|pollution|section\s+\d+|act\s+\d{4}|rule\s+\d+|objection|deadline|within\s+\d+\s+days|hearing|notice)",
+    re.IGNORECASE
+)
+DANGLING_END = re.compile(r"\b(?:to\s+the|of\s+the|in\s+the|at\s+the|from\s+the|and|or|by|with|for|under|that)\s*$", re.IGNORECASE)
+
+def find_illustrations(text: str) -> List[Tuple[int, int]]:
+    """Identifies complete, unbroken Illustration blocks across lines and worked steps."""
+    ills: List[Tuple[int, int]] = []
+    for m in re.finditer(r"Illustration\s*[:\-]", text, re.IGNORECASE):
+        start = m.start()
+        rest = text[start + len(m.group(0)):]
+        end_match = re.search(
+            r"\n\s*(?=Provided\s+(?:further\s+|also\s+)?that|Illustration\s*[:\-]|\(\d+\)\s+[A-Z]|\([a-z]\)\s+(?:if|where|may|upon|in|the|any|shall)|\d+\.\s+[A-Z])",
+            rest,
+            re.IGNORECASE
+        )
+        if end_match:
+            end = start + len(m.group(0)) + end_match.start()
+        else:
+            end = len(text)
+        ills.append((start, end))
+    return ills
+
 def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
     """
-    Deterministic rule-based extractor that segments text into sentences
-    and extracts operative civic clauses (tax, setback, legal acts, deadlines).
+    Deterministic rule-based extractor that segments text into complete legal clauses
+    (provisos, multi-line operative sections, complete Illustration blocks).
+    Applies auditable validation filters with exemptions for short deadline/citation clauses.
     Guarantees 100% verbatim quotes with exact character offsets.
     """
     clauses: List[Clause] = []
-    operative_patterns = [
-        r"(?:setback|far|zoning|land\s+use|building\s+height|coverage)\b",
-        r"(?:tax|cess|fee|penalty|rate|valuation|assessment)\b",
-        r"(?:road|drainage|water|sewer|infrastructure|pipeline)\b",
-        r"(?:environment|green|tree|lake|buffer|pollution)\b",
-        r"(?:section\s+\d+|act\s+\d{4}|rule\s+\d+)\b",
-        r"(?:objection|deadline|within\s+\d+\s+days|hearing|notice)\b"
-    ]
-    combined_regex = re.compile("|".join(operative_patterns), re.IGNORECASE)
     ward_regex = re.compile(r"\b(?:ward\s*(?:no\.?|number)?\s*(\d+|[A-Za-z]+))\b", re.IGNORECASE)
-    deadline_regex = re.compile(r"\b(?:within\s+(\d+\s*(?:days|weeks|months)))\b", re.IGNORECASE)
+    deadline_regex = re.compile(r"\b(?:within\s+(\d+\s*(?:days?|weeks?|months?)))\b", re.IGNORECASE)
     act_regex = re.compile(r"([A-Z][A-Za-z\s]+Act(?:,\s*\d{4}|\s+\d{4})?(?:\s+Section\s+\d+[A-Za-z]*)?)", re.IGNORECASE)
 
     clause_counter = 1
@@ -92,52 +110,113 @@ def rule_based_verbatim_extractor(pages_text: List[str]) -> List[Clause]:
         if not page_content.strip():
             continue
 
-        # Split text into paragraphs or sentences
-        # Preserve sentence start and end offsets in page_content
-        for sentence_match in re.finditer(r"([A-Z0-9][^.!?\n]+[.!?]?)", page_content):
-            sent_text = sentence_match.group(1).strip()
-            if len(sent_text) < 25:
+        illustrations = find_illustrations(page_content)
+
+        # Structural markers outside illustrations
+        pattern = re.compile(
+            r"(?:^|\n)\s*(?="
+            r"Illustration\s*[:\-]|"
+            r"Provided\s+(?:further\s+|also\s+)?that|"
+            r"\(\d+\)\s+[A-Z]|\([a-z]\)\s+[a-z]|"
+            r"\d+\.\s+[A-Z]"
+            r")",
+            re.IGNORECASE
+        )
+        splits = [0]
+        for m in pattern.finditer(page_content):
+            pt = m.start()
+            if not any(ill_s < pt < ill_e for ill_s, ill_e in illustrations):
+                splits.append(pt)
+        for s, e in illustrations:
+            splits.extend([s, e])
+        splits.append(len(page_content))
+        splits = sorted(list(set(splits)))
+
+        raw_units: List[Tuple[int, int, str]] = []
+        for i in range(len(splits) - 1):
+            s, e = splits[i], splits[i + 1]
+            chunk = page_content[s:e].strip()
+            if not chunk:
                 continue
 
-            if combined_regex.search(sent_text):
-                start = sentence_match.start(1)
-                end = start + len(sent_text)
-                verbatim_text = page_content[start:end]
+            is_ill = any(s >= ill_s and e <= ill_e for ill_s, ill_e in illustrations)
+            if is_ill:
+                orig_s = page_content.find(chunk, s)
+                orig_e = orig_s + len(chunk)
+                raw_units.append((orig_s, orig_e, chunk))
+            else:
+                # Segment sentences while preserving abbreviations and numbers with decimals
+                sub_start = 0
+                for sm in re.finditer(r"(?<=[.!?])\s+(?=[A-Z])", chunk):
+                    prefix = chunk[:sm.start()]
+                    if ABBREV_PATTERN.search(prefix) or re.search(r"\d+\.$", prefix):
+                        continue
+                    sent = chunk[sub_start:sm.start()].strip()
+                    if sent:
+                        orig_s = page_content.find(sent, s)
+                        orig_e = orig_s + len(sent)
+                        raw_units.append((orig_s, orig_e, sent))
+                    sub_start = sm.end()
+                remainder = chunk[sub_start:].strip()
+                if remainder:
+                    orig_s = page_content.find(remainder, s)
+                    orig_e = orig_s + len(remainder)
+                    raw_units.append((orig_s, orig_e, remainder))
 
-                # Extract ward if mentioned
-                ward_match = ward_regex.search(verbatim_text)
-                ward = ward_match.group(1) if ward_match else None
+        # Validate candidates against operative criteria, word floor, and exemptions
+        for start, end, verbatim_text in raw_units:
+            words = verbatim_text.split()
+            word_count = len(words)
+            if word_count < 3:
+                continue
 
-                # Extract deadline if mentioned
-                deadline_match = deadline_regex.search(verbatim_text)
-                deadline = deadline_match.group(1) if deadline_match else None
+            # Drop dangling phrases ending mid-sentence
+            if DANGLING_END.search(verbatim_text):
+                continue
 
-                # Extract legal citation if mentioned
-                act_match = act_regex.search(verbatim_text)
-                citation = act_match.group(1).strip() if act_match else None
+            # Point 1: Exempt date/deadline patterns and statutory citations from 8-word floor
+            is_exempt = bool(DATE_OR_CITATION.search(verbatim_text))
+            if word_count < 8 and not is_exempt:
+                continue
 
-                # Determine clause type
-                c_type = "operative_provision"
-                if "setback" in verbatim_text.lower() or "zoning" in verbatim_text.lower():
-                    c_type = "zoning_regulation"
-                elif "tax" in verbatim_text.lower() or "cess" in verbatim_text.lower():
-                    c_type = "taxation_rule"
-                elif "objection" in verbatim_text.lower() or "deadline" in verbatim_text.lower():
-                    c_type = "procedural_deadline"
+            if not OPERATIVE_PATTERN.search(verbatim_text):
+                continue
 
-                clause = Clause(
-                    id=f"cl_{clause_counter:02d}",
-                    text=verbatim_text,
-                    page=page_idx,
-                    char_start=start,
-                    char_end=end,
-                    clause_type=c_type,
-                    ward=ward,
-                    objection_deadline=deadline,
-                    cited_legal_basis=citation
-                )
-                clauses.append(clause)
-                clause_counter += 1
+            # Extract metadata
+            ward_match = ward_regex.search(verbatim_text)
+            ward = ward_match.group(1) if ward_match else None
+
+            deadline_match = deadline_regex.search(verbatim_text)
+            deadline = deadline_match.group(1) if deadline_match else None
+
+            act_match = act_regex.search(verbatim_text)
+            citation = act_match.group(1).strip() if act_match else None
+
+            # Determine clause type
+            c_type = "operative_provision"
+            v_low = verbatim_text.lower()
+            if "setback" in v_low or "zoning" in v_low:
+                c_type = "zoning_regulation"
+            elif "tax" in v_low or "cess" in v_low or "penalty" in v_low:
+                c_type = "taxation_rule"
+            elif "objection" in v_low or "deadline" in v_low or "within" in v_low:
+                c_type = "procedural_deadline"
+            elif "environment" in v_low or "tree" in v_low or "lake" in v_low:
+                c_type = "environmental_mandate"
+
+            clause = Clause(
+                id=f"cl_{clause_counter:02d}",
+                text=verbatim_text,
+                page=page_idx,
+                char_start=start,
+                char_end=end,
+                clause_type=c_type,
+                ward=ward,
+                objection_deadline=deadline,
+                cited_legal_basis=citation
+            )
+            clauses.append(clause)
+            clause_counter += 1
 
     return clauses
 
@@ -197,6 +276,13 @@ async def extraction_node(state: CivicLensState) -> Dict[str, Any]:
                 offsets = find_exact_offsets(page_text, cand.text)
                 if offsets:
                     start, end, verbatim_str = offsets
+                    words = verbatim_str.split()
+                    word_count = len(words)
+                    is_exempt = bool(DATE_OR_CITATION.search(verbatim_str))
+                    if word_count < 8 and not is_exempt:
+                        continue
+                    if DANGLING_END.search(verbatim_str):
+                        continue
                     clause = Clause(
                         id=f"cl_{clause_counter:02d}",
                         text=verbatim_str,  # SNAPPED directly to source text

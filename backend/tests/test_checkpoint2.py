@@ -145,6 +145,103 @@ async def test_verification_ensemble_rejected():
     assert status == VerificationStatus.REJECTED_PRUNED
 
 @pytest.mark.asyncio
+async def test_act36_illustration_single_clause():
+    """Verify that an Illustration block with sub-items is extracted as a single, coherent clause."""
+    sample_page_61 = (
+        "220\n"
+        "(3) Upon scrutiny, if the authorized officer has reason to believe that any "
+        "return furnished, which is deemed as assessed, is incorrect or has been under assessed resulting in evasion of property tax,\n"
+        "Illustration: If payable tax is Rs.150 for the year 2021 but actual property tax "
+        "paid is Rs.100 then evaded tax amount is Rs.50. If the payment is happening on "
+        "23rd December 2023, then the following shall be payable —\n"
+        "(i) Evaded Property Tax Amount = Rs.50\n"
+        "(ii) Penalty for evasion = Rs.50\n"
+        "(iii) 9% interest on the evaded property tax of Rs.50 shall be calculated as follows —\n"
+        "(a) 9% interest on Rs.25 which is 50% of Rs.50, from 31st May 2021 until date of payment\n"
+        "(b) 9% interest on the rest Rs.25 which is 50% of Rs.50, from 30th November 2021 until date of payment\n"
+        "Provided that the penalty payable by residential properties which have tiled or sheet roof "
+        "and is not more than 1000 Sq Ft, have only the ground floor and is self-occupied, shall be 25% of the evaded tax.\n"
+    )
+    clauses = rule_based_verbatim_extractor([sample_page_61])
+    ill_clauses = [c for c in clauses if "illustration:" in c.text.lower()]
+    assert len(ill_clauses) == 1, f"Expected exactly 1 illustration clause, found {len(ill_clauses)}"
+    single_ill = ill_clauses[0]
+    assert len(single_ill.text.split()) >= 60, "Illustration should not be sliced into fragments"
+    assert "(i) Evaded Property Tax Amount" in single_ill.text
+    assert "9% interest on the rest Rs.25" in single_ill.text
+
+def test_date_and_citation_exemption():
+    """Verify Point 1: Short clauses matching deadline or statutory citation patterns are exempt from 8-word floor."""
+    page_text = (
+        "Public Notice 2024.\n"
+        "File objections within 15 days.\n"
+        "Section 14 of KTCP Act 1961.\n"
+        "Commercial setback is 3.0 meters."
+    )
+    clauses = rule_based_verbatim_extractor([page_text])
+    texts = [c.text for c in clauses]
+    assert any("File objections within 15 days" in t for t in texts), "Short deadline clause must be exempt from 8-word floor"
+    assert any("Section 14 of KTCP Act 1961" in t for t in texts), "Statutory citation clause must be exempt from 8-word floor"
+
+def test_extract_local_premise_window():
+    """Verify Bug 2: Local premise windowing keeps context compact and avoids truncation."""
+    from backend.agents.verification import extract_local_premise_window
+    long_page = ("Filler sentence for background municipal context. " * 60) + \
+                "Under Section 108A, property tax assessment is revised upward by 10 percent. " + \
+                ("Trailing context at the end of the legal gazette document. " * 30)
+    target = "Under Section 108A, property tax assessment is revised upward by 10 percent."
+    char_start = long_page.find(target)
+    char_end = char_start + len(target)
+
+    window = extract_local_premise_window(long_page, char_start, char_end, window_chars=600)
+    assert target in window
+    assert len(window) < len(long_page)
+    assert len(window) <= 1200
+
+@pytest.mark.asyncio
+async def test_red_team_false_claims():
+    """
+    Verify Point 3: 5 deliberately-false claims score low on BOTH NLI and Judge,
+    strictly resulting in REJECTED_PRUNED.
+    """
+    from backend.agents.verification import NLIEvaluator, evaluate_llm_judge
+    premise = (
+        "Under Section 14 of KTCP Act 1961, commercial setback in Ward 150 is revised to 3.0 meters. "
+        "All property owners must adhere to zoning regulations. Objections must be filed within 30 days."
+    )
+    false_claims = [
+        "All property taxes across all wards are completely abolished and no civic fees shall ever be collected.",
+        "Commercial buildings in Ward 150 are permitted to have zero setbacks with 100% road encroachment.",
+        "Citizens are strictly prohibited from submitting any objections or legal petitions at any time.",
+        "The municipality offers unconditional 100% cash subsidies for private residential construction.",
+        "All environmental protection rules, lake buffer zones, and tree preservation mandates are repealed."
+    ]
+
+    for claim_text in false_claims:
+        nli_score = NLIEvaluator.score_premise_hypothesis(premise, claim_text)
+        judge_res = await evaluate_llm_judge(premise, claim_text)
+        
+        # Verify both gates reject
+        assert nli_score < 0.40, f"Expected NLI < 0.40 for false claim '{claim_text}', got {nli_score}"
+        assert judge_res["verdict"] == "no", f"Expected judge verdict 'no' for false claim '{claim_text}', got {judge_res['verdict']}"
+        
+        # Status must be REJECTED_PRUNED
+        status = VerificationStatus.REJECTED_PRUNED if (nli_score < 0.40 and judge_res["verdict"] == "no") else VerificationStatus.PENDING_AUDIT
+        assert status == VerificationStatus.REJECTED_PRUNED
+
+@pytest.mark.asyncio
+async def test_judge_source_tracking():
+    """Verify Point 2: Judge results clearly attribute judge_source ('llm_judge' or 'containment_fallback')."""
+    os.environ["CIVICLENS_MOCK_NLI"] = "1"
+    premise = "Under Section 14 of KTCP Act 1961, commercial setback in Ward 150 is revised to 3.0 meters."
+    claim = "commercial setback in Ward 150 is revised to 3.0 meters."
+    
+    judge_res = await evaluate_llm_judge(premise, claim)
+    assert "judge_source" in judge_res
+    assert judge_res["judge_source"] in ("llm_judge", "containment_fallback", "llm_unavailable_audit")
+    assert "[" in judge_res["reasoning"]  # Prefixed with [Containment-Fallback] or [LLM-Judge]
+
+@pytest.mark.asyncio
 async def test_full_pipeline_checkpoint2():
     """Verify end-to-end traversal from real PDF bytes through extraction, typology, and verification ensemble."""
     os.environ["CIVICLENS_MOCK_NLI"] = "1"

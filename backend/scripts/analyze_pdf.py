@@ -63,7 +63,8 @@ async def analyze_file(pdf_path: str):
         print(f"\n[{idx}] Status: {status}")
         print(f"    Text: \"{clause.get('text')}\"")
         print(f"    Typology: {typology} | Ward: {ward} | Offset: {offsets}")
-        print(f"    Ensemble Gate: NLI Entailment={nli} | LLM-Judge={verdict} ({llm_score})")
+        print(f"    Ensemble Gate: NLI Entailment={nli} | Judge={verdict} ({claim.get('judge_source')}, score={llm_score})")
+        print(f"    Reasoning: {claim.get('llm_judge_reasoning')}")
 
     if report:
         print("\n" + "=" * 60)

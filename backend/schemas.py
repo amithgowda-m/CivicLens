@@ -39,6 +39,7 @@ class VerifiedClaim(BaseModel):
     llm_judge_score: float = Field(default=0.0, description="LLM judge score")
     llm_judge_verdict: Literal["yes", "no", "partial"] = "partial"
     llm_judge_reasoning: str = ""
+    judge_source: Optional[str] = "llm_judge"
     status: VerificationStatus = VerificationStatus.PENDING_AUDIT
     human_audited: bool = False
     audit_decision: Optional[Literal["APPROVE", "REJECT"]] = None
