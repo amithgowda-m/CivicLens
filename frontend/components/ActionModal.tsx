@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Copy, Download, Check, FileText } from 'lucide-react';
 
 interface ActionModalProps {
@@ -17,6 +18,8 @@ interface ActionModalProps {
 
 export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actionArtifact }) => {
   const [copied, setCopied] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Body scroll lock
   useEffect(() => {
@@ -28,7 +31,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actio
     return () => { document.body.classList.remove('modal-open'); };
   }, [isOpen]);
 
-  if (!isOpen || !actionArtifact) return null;
+  if (!isOpen || !actionArtifact || !mounted) return null;
 
   const isObjection = actionArtifact.action_type === 'objection_letter';
 
@@ -48,9 +51,9 @@ export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actio
     document.body.removeChild(element);
   };
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-panel w-full max-w-3xl" style={{ maxHeight: '90vh' }}>
+      <div className="modal-panel max-w-3xl" style={{ maxHeight: '85vh' }}>
         {/* Header */}
         <div className="modal-header">
           <div className="flex items-center gap-3">
@@ -87,7 +90,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actio
         </div>
 
         {/* Body */}
-        <div className="modal-body space-y-3" style={{ maxHeight: 'calc(90vh - 9rem)', overflowY: 'auto' }}>
+        <div className="modal-body space-y-3">
           {actionArtifact.recipient_authority && (
             <div
               className="rounded px-3 py-2.5 flex flex-wrap gap-4 text-xs"
@@ -133,6 +136,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actio
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

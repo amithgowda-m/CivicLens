@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Brain, ShieldAlert, CheckCircle, XCircle, Users, AlertTriangle } from 'lucide-react';
 
 export interface ImpactItemData {
@@ -24,6 +25,9 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
   onClose,
   impact,
 }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   // Body scroll lock
   useEffect(() => {
     if (isOpen) {
@@ -34,7 +38,7 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
     return () => { document.body.classList.remove('modal-open'); };
   }, [isOpen]);
 
-  if (!isOpen || !impact) return null;
+  if (!isOpen || !impact || !mounted) return null;
 
   const isPos = impact.polarity === 'positive';
   const isNeg = impact.polarity === 'negative';
@@ -42,9 +46,9 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
   const polarityChipCls = isPos ? 'chip-success' : isNeg ? 'chip-danger' : 'chip-warning';
   const polarityBorder = isPos ? 'var(--success)' : isNeg ? 'var(--danger)' : 'var(--warning)';
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-panel w-full max-w-2xl" style={{ maxHeight: '88vh' }}>
+      <div className="modal-panel max-w-2xl" style={{ maxHeight: '82vh' }}>
 
         {/* Header */}
         <div className="modal-header">
@@ -77,7 +81,7 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="modal-body space-y-4" style={{ maxHeight: 'calc(88vh - 9rem)', overflowY: 'auto' }}>
+        <div className="modal-body space-y-4">
 
           {/* Impact Text */}
           <div
@@ -212,6 +216,7 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

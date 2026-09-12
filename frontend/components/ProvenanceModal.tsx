@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Search } from 'lucide-react';
 
 interface ProvenanceModalProps {
@@ -10,6 +11,9 @@ interface ProvenanceModalProps {
 }
 
 export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({ isOpen, onClose, claim }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   // Body scroll lock
   useEffect(() => {
     if (isOpen) {
@@ -20,11 +24,11 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({ isOpen, onClos
     return () => { document.body.classList.remove('modal-open'); };
   }, [isOpen]);
 
-  if (!isOpen || !claim) return null;
+  if (!isOpen || !claim || !mounted) return null;
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-panel w-full max-w-xl">
+      <div className="modal-panel max-w-xl" style={{ maxHeight: '85vh' }}>
         {/* Header */}
         <div className="modal-header">
           <div className="flex items-center gap-3">
@@ -150,6 +154,7 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({ isOpen, onClos
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

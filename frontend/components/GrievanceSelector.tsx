@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, AlertOctagon, CheckSquare, Square, ArrowRight, Loader2, FileWarning } from 'lucide-react';
 import { ImpactItemData } from './ImpactDetailModal';
 
@@ -17,6 +18,9 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
   impacts,
   onSubmit,
 }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   // Filter to all non-positive impacts (both negative/red and mixed/yellow)
   const grievances = impacts.filter((i) => i.polarity !== 'positive');
 
@@ -34,7 +38,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
     return () => { document.body.classList.remove('modal-open'); };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const toggleSelection = (idx: number) => {
     setSelected((prev) => {
@@ -70,9 +74,9 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-panel w-full max-w-2xl" style={{ maxHeight: '88vh' }}>
+      <div className="modal-panel max-w-2xl" style={{ maxHeight: '82vh' }}>
 
         {/* Header */}
         <div className="modal-header">
@@ -102,7 +106,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
         </div>
 
         {/* Body */}
-        <div className="modal-body space-y-3" style={{ maxHeight: 'calc(88vh - 9rem)', overflowY: 'auto' }}>
+        <div className="modal-body space-y-3">
 
           {/* Select All Toggle */}
           <div className="flex items-center justify-between pb-1">
@@ -207,6 +211,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
