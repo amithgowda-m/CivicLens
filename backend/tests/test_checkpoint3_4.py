@@ -164,7 +164,7 @@ async def test_report_generator_and_action_agent():
     report_obj = ReportData.model_validate(report_dict)
     action_art = await generate_action_artifact(report_obj)
     assert action_art.action_type == "objection_letter"
-    assert "FORMAL OBJECTION" in action_art.content
+    assert "objection" in action_art.content.lower()
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

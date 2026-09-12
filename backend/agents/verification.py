@@ -32,25 +32,19 @@ class NLIEvaluator:
 
     @classmethod
     def score_premise_hypothesis(cls, premise: str, hypothesis: str) -> float:
-        if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
+        if os.environ.get("CIVICLENS_MOCK_NLI") == "1" or cls.get_model() == "MOCK":
             p_low = premise.lower()
             h_low = hypothesis.lower()
             if h_low in p_low:
                 return 0.95
+            # Use content-carrying words (>3 chars) for meaningful overlap
             words = [w for w in h_low.split() if len(w) > 3]
-            overlap = sum(1 for w in words if w in p_low) / max(len(words), 1)
-            return round(max(overlap, 0.85), 4)
-
-        model = cls.get_model()
-        if model == "MOCK" or model is None:
-            # Deterministic heuristic based on lexical containment
-            p_low = premise.lower()
-            h_low = hypothesis.lower()
-            if h_low in p_low:
-                return 0.95
-            words = [w for w in h_low.split() if len(w) > 3]
-            overlap = sum(1 for w in words if w in p_low) / max(len(words), 1)
-            return round(max(overlap, 0.85), 4)
+            if not words:
+                return 0.10
+            overlap = sum(1 for w in words if w in p_low) / len(words)
+            # Scale: 0.0-0.35 overlap → scores < 0.40 (REJECTED range)
+            # Scale: 0.60-1.0 overlap → scores > 0.75 (ADMITTED range)
+            return round(min(overlap * 1.2, 0.97), 4)
 
         try:
             scores = model.predict([(premise, hypothesis)])
@@ -130,7 +124,10 @@ async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
       (score: 0.50, verdict: 'partial') rather than rubber-stamping 'yes' / 0.98.
     """
     global _llm_service_available
-    if os.environ.get("CIVICLENS_MOCK_NLI") != "1":
+    # When CIVICLENS_MOCK_NLI=1, skip live LLM entirely — use deterministic containment fallback below
+    if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
+        pass  # Fall through to containment fallback at end of function
+    else:
         # In live mode, if LLM is marked unavailable, route directly to audit without silent containment fallback
         if _llm_service_available is False:
             return {

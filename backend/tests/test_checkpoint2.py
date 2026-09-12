@@ -131,6 +131,7 @@ async def test_verification_ensemble_admitted():
 async def test_verification_ensemble_rejected():
     """Verify that an unsupported/hallucinated claim evaluates to REJECTED_PRUNED."""
     os.environ["CIVICLENS_MOCK_NLI"] = "1"
+    NLIEvaluator._model = None  # Reset singleton so mock heuristic path is re-evaluated
     premise = "Under Section 14 of KTCP Act 1961, commercial setback in Ward 150 is revised to 3.0 meters."
     fabricated = "The municipality has waived all property taxes for IT companies completely."
     
@@ -205,6 +206,8 @@ async def test_red_team_false_claims():
     strictly resulting in REJECTED_PRUNED.
     """
     from backend.agents.verification import NLIEvaluator, evaluate_llm_judge
+    os.environ["CIVICLENS_MOCK_NLI"] = "1"
+    NLIEvaluator._model = None  # Reset singleton to pick up mock mode cleanly
     premise = (
         "Under Section 14 of KTCP Act 1961, commercial setback in Ward 150 is revised to 3.0 meters. "
         "All property owners must adhere to zoning regulations. Objections must be filed within 30 days."
