@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Copy, Download, Check, FileText } from 'lucide-react';
 
 interface ActionModalProps {
@@ -15,12 +15,18 @@ interface ActionModalProps {
   } | null;
 }
 
-export const ActionModal: React.FC<ActionModalProps> = ({
-  isOpen,
-  onClose,
-  actionArtifact,
-}) => {
+export const ActionModal: React.FC<ActionModalProps> = ({ isOpen, onClose, actionArtifact }) => {
   const [copied, setCopied] = useState(false);
+
+  // Body scroll lock
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+    return () => { document.body.classList.remove('modal-open'); };
+  }, [isOpen]);
 
   if (!isOpen || !actionArtifact) return null;
 
@@ -36,78 +42,95 @@ export const ActionModal: React.FC<ActionModalProps> = ({
     const element = document.createElement('a');
     const file = new Blob([actionArtifact.content], { type: 'text/plain' });
     element.href = URL.createObjectURL(file);
-    element.download = `${isObjection ? 'Objection_Petition' : 'Citizen_Bulletin'}_Ward150.txt`;
+    element.download = `${isObjection ? 'Objection_Petition' : 'Citizen_Bulletin'}_CivicLens.txt`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-      <div className="glass-panel w-full max-w-3xl rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <div className="flex items-center space-x-3">
-            <div className={`p-2 rounded-xl ${isObjection ? 'bg-rose-950/80 text-rose-400 border border-rose-800' : 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'}`}>
-              <FileText className="w-5 h-5" />
+    <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-panel w-full max-w-3xl" style={{ maxHeight: '90vh' }}>
+        {/* Header */}
+        <div className="modal-header">
+          <div className="flex items-center gap-3">
+            <div
+              className="p-1.5 rounded"
+              style={{
+                background: isObjection ? 'var(--danger-dim)' : 'var(--success-dim)',
+                border: `1px solid ${isObjection ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'}`,
+              }}
+            >
+              <FileText
+                className="w-4 h-4"
+                style={{ color: isObjection ? '#f87171' : 'var(--success)' }}
+              />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {isObjection ? 'Formal Citizen Objection Petition' : 'Community Civic Awareness Bulletin'}
-              </h3>
-              <p className="text-xs text-slate-400">
-                {isObjection ? 'Ready to sign and submit to municipal authority' : 'Formatted for Resident Welfare Associations'}
-              </p>
+              </div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {isObjection
+                  ? 'Ready to sign and submit to municipal authority'
+                  : 'Formatted for Resident Welfare Associations'}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-            <X className="w-5 h-5" />
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-4 font-sans">
+        {/* Body */}
+        <div className="modal-body space-y-3" style={{ maxHeight: 'calc(90vh - 9rem)', overflowY: 'auto' }}>
           {actionArtifact.recipient_authority && (
-            <div className="flex flex-wrap gap-4 text-xs bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <div
+              className="rounded px-3 py-2.5 flex flex-wrap gap-4 text-xs"
+              style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)' }}
+            >
               <div>
-                <span className="text-slate-400">Recipient Authority: </span>
-                <span className="text-sky-300 font-semibold">{actionArtifact.recipient_authority}</span>
+                <span style={{ color: 'var(--text-muted)' }}>Recipient Authority: </span>
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {actionArtifact.recipient_authority}
+                </span>
               </div>
               {actionArtifact.target_deadline && (
                 <div>
-                  <span className="text-slate-400">Submission Window: </span>
-                  <span className="text-rose-300 font-semibold">{actionArtifact.target_deadline}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Submission Window: </span>
+                  <span className="font-semibold" style={{ color: '#f87171' }}>
+                    {actionArtifact.target_deadline}
+                  </span>
                 </div>
               )}
             </div>
           )}
 
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+          <div
+            className="rounded p-4 text-xs font-mono whitespace-pre-wrap leading-relaxed"
+            style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: "'JetBrains Mono', monospace" }}
+          >
             {actionArtifact.content}
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
-          <span className="text-xs text-slate-400">
-            Generated on-demand via CivicLens Action Agent.
+        {/* Footer */}
+        <div className="modal-footer">
+          <span className="text-xs mr-auto" style={{ color: 'var(--text-faint)' }}>
+            Generated via CivicLens Action Agent
           </span>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={handleCopy}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center space-x-2 border border-slate-700"
-            >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              <span>{copied ? 'Copied!' : 'Copy Text'}</span>
-            </button>
-            <button
-              onClick={handleDownload}
-              className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center space-x-2 shadow-lg shadow-sky-600/30"
-            >
-              <Download className="w-4 h-4" />
-              <span>Download File</span>
-            </button>
-          </div>
+          <button onClick={handleCopy} className="btn btn-ghost">
+            {copied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+          <button onClick={handleDownload} className="btn btn-primary">
+            <Download className="w-3.5 h-3.5" />
+            Download
+          </button>
         </div>
       </div>
     </div>

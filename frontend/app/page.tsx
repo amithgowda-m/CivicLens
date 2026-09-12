@@ -1,388 +1,391 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Navbar } from '@/components/Navbar';
-import { LiveTraceStepper, TraceEvent } from '@/components/LiveTraceStepper';
-import { ReportView, ReportDataPayload } from '@/components/ReportView';
-import { ActionModal } from '@/components/ActionModal';
-import { ProvenanceModal } from '@/components/ProvenanceModal';
-import { Upload, FileCode, Play, RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import React from 'react';
+import { useApp } from './context/AppContext';
+import {
+  Upload, Play, RefreshCw, CheckCircle2, AlertTriangle,
+  Cpu, Shield, AlertOctagon, Scale, FileText,
+} from 'lucide-react';
 
-export default function Home() {
-  const [samples, setSamples] = useState<string[]>([]);
-  const [selectedSample, setSelectedSample] = useState<string>('');
-  const [file, setFile] = useState<File | null>(null);
-  
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [documentId, setDocumentId] = useState<string | null>(null);
-  const [events, setEvents] = useState<TraceEvent[]>([]);
-  const [currentStage, setCurrentStage] = useState<string>('');
-  const [plannerJson, setPlannerJson] = useState<any>(null);
-  
-  const [report, setReport] = useState<ReportDataPayload | null>(null);
-  const [reliabilityScore, setReliabilityScore] = useState<number | null>(0.964);
-  
-  const [activeClaim, setActiveClaim] = useState<any | null>(null);
-  const [isProvenanceOpen, setIsProvenanceOpen] = useState<boolean>(false);
-  
-  const [actionArtifact, setActionArtifact] = useState<any | null>(null);
-  const [isActionOpen, setIsActionOpen] = useState<boolean>(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // Fetch samples and eval metric on mount
-  useEffect(() => {
-    fetch('/api/samples')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setSamples(data);
-        else if (data.samples) setSamples(data.samples);
-      })
-      .catch(() => setSamples(['bda_zoning_notice.pdf', 'bbmp_council_agenda.pdf', 'rti_response.pdf']));
-
-    fetch('/api/eval')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.system_reliability_score !== undefined && data.system_reliability_score !== null) {
-          setReliabilityScore(data.system_reliability_score);
-        }
-      })
-      .catch(() => setReliabilityScore(0.964));
-  }, []);
-
-  const fetchReport = async (docId: string) => {
-    try {
-      const res = await fetch(`/api/report/${docId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.report || data.policy_summary) {
-          setReport(data.report || data);
-        }
-      }
-    } catch (err) {
-      console.error('Fetch Report Error:', err);
-    }
+function VerdictChip({ verdict }: { verdict: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    positive: { label: 'Positive', cls: 'chip-success' },
+    negative: { label: 'Negative', cls: 'chip-danger' },
+    mixed:    { label: 'Mixed',    cls: 'chip-warning' },
   };
+  const cfg = map[verdict?.toLowerCase()] ?? map.mixed;
+  return <span className={`chip ${cfg.cls}`}>{cfg.label}</span>;
+}
 
-  const handleUploadAndRun = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+export default function OverviewPage() {
+  const {
+    samples, selectedSample, setSelectedSample,
+    file, setFile,
+    isProcessing, events, report,
+    handleUploadAndRun,
+  } = useApp();
 
-    setIsProcessing(true);
-    setEvents([]);
-    setReport(null);
-    setActionArtifact(null);
-    setPlannerJson(null);
-    setCurrentStage('Planner Agent');
+  const completedCount = events.filter((e) => e.status === 'completed').length;
+  const failedCount    = events.filter((e) => e.status === 'failed').length;
+  const runningAgent   = events.find((e) => e.status === 'running')?.stage;
 
-    // Staggered agent reveal — each stage appears as 'running' then flips to 'completed'
-    const AGENT_SEQUENCE = [
-      { stage: 'Planner Agent', details: 'Sequential execution plan emitted.' },
-      { stage: 'Ingestion Agent', details: 'Parsed text with offset provenance map.' },
-      { stage: 'Extraction Agent', details: 'Verbatim clauses extracted with char offsets.' },
-      { stage: 'Typology Classifier', details: 'Classified land use & tax categories.' },
-      { stage: 'Memory & Contradiction Agent', details: 'Cross-checked historical ward notices.' },
-      { stage: 'Verification Ensemble Gate', details: 'NLI Cross-Encoder + LLM Judge passed.' },
-      { stage: 'Legal Grounding Agent', details: 'Grounded against KTCP 1961 & GBGA 2024.' },
-      { stage: 'Impact Analysis Agent', details: 'Evaluated stakeholder polarities.' },
-      { stage: 'Critic Agent (Adversarial)', details: 'Audited counter-perspectives & subgroups.' },
-      { stage: 'Report Generation Agent', details: 'Synthesized 9 fixed report sections.' },
+  const unifiedImpacts = (() => {
+    if (!report) return [];
+    if (report.impacts && report.impacts.length > 0) return report.impacts;
+    const pos = Array.from(new Set(report.positive_impacts || []));
+    const neg = Array.from(new Set(report.negative_impacts || []));
+    return [
+      ...pos.map((text) => ({ text, polarity: 'positive' as const, affected_group: '', impact_reasoning: '', critic_confirmed: null, critic_note: null, overlooked_subgroups: [] })),
+      ...neg.map((text) => ({ text, polarity: 'negative' as const, affected_group: '', impact_reasoning: '', critic_confirmed: null, critic_note: null, overlooked_subgroups: [] })),
     ];
+  })();
 
-    const STEP_MS = 420;   // ms between each agent starting
-    const ACTIVE_MS = 600; // ms each agent stays 'running' before completing
+  const riskFlags         = Array.from(new Set(report?.risk_flags || []));
+  const legalCitations    = (report?.legal_grounding || []).filter((lg: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.citation === lg.citation) === i).length;
+  const verifiedClaims    = (report?.claim_confidence || []).filter((c: any) => c.status === 'ADMITTED').length;
+  const stakeholderCount  = Array.from(new Set(report?.stakeholders_impacted || [])).length;
 
-    AGENT_SEQUENCE.forEach(({ stage, details }, idx) => {
-      // Mark as running
-      setTimeout(() => {
-        setCurrentStage(stage);
-        setEvents((prev) => [
-          ...prev,
-          { stage, status: 'running', details },
-        ]);
-      }, idx * STEP_MS);
-
-      // Mark as completed
-      setTimeout(() => {
-        setEvents((prev) =>
-          prev.map((ev) =>
-            ev.stage === stage ? { ...ev, status: 'completed' } : ev
-          )
-        );
-      }, idx * STEP_MS + ACTIVE_MS);
-    });
-
-    // Total animation time before we expect backend to also respond
-    const totalAnimationMs = AGENT_SEQUENCE.length * STEP_MS + ACTIVE_MS;
-
-    try {
-      let payload: any = {};
-      const sampleToUse = selectedSample || (samples.length > 0 ? samples[0] : 'bda_zoning_notice.pdf');
-
-      if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch('/api/upload?analyze=true', { method: 'POST', body: formData });
-        payload = await res.json();
-      } else {
-        const formData = new FormData();
-        formData.append('sample_name', sampleToUse);
-        const res = await fetch('/api/upload?analyze=true', {
-          method: 'POST',
-          body: formData,
-        });
-        payload = await res.json();
-      }
-
-      const docId = payload.document_id || payload.doc_id || 'doc_' + Date.now();
-      setDocumentId(docId);
-
-      if (payload.report) {
-        // Wait for animation to finish before showing report
-        const remaining = Math.max(0, totalAnimationMs - 200);
-        setTimeout(() => {
-          setReport(payload.report);
-          setIsProcessing(false);
-          triggerFinalAgents();
-        }, remaining);
-      } else {
-        pollForReport(docId, 0, totalAnimationMs);
-      }
-    } catch (err) {
-      console.error('Upload Error:', err);
-      setIsProcessing(false);
-    }
-  };
-
-  // Marks Action Agent + Eval Harness as completed in the trace stepper
-  const triggerFinalAgents = () => {
-    setTimeout(() => {
-      setEvents((prev) => [
-        ...prev,
-        { stage: 'Action Agent (On-Demand)', status: 'running', details: 'Standing by for citizen action request.' },
-      ]);
-    }, 300);
-    setTimeout(() => {
-      setEvents((prev) =>
-        prev.map((ev) =>
-          ev.stage === 'Action Agent (On-Demand)' ? { ...ev, status: 'completed', details: 'Ready to draft objection letter or bulletin.' } : ev
-        )
-      );
-      setEvents((prev) => [
-        ...prev,
-        { stage: 'Evaluation Harness', status: 'running', details: 'Computing precision/recall metrics.' },
-      ]);
-    }, 900);
-    setTimeout(() => {
-      setEvents((prev) =>
-        prev.map((ev) =>
-          ev.stage === 'Evaluation Harness' ? { ...ev, status: 'completed', details: 'System reliability score computed.' } : ev
-        )
-      );
-    }, 1600);
-  };
-
-  const pollForReport = async (docId: string, attempts = 0, delayMs = 0) => {
-    // 4.8 minutes max (240 × 1.2s) — enough for large PDFs with Groq rate-limit backoffs
-    if (attempts > 240) {
-      console.warn('Poll timeout — pipeline may still be running');
-      triggerFinalAgents();
-      setIsProcessing(false);
-      // Show a partial error event so the trace stepper doesn't stay frozen
-      setEvents((prev) => [
-        ...prev,
-        {
-          stage: 'Report Generation Agent',
-          status: 'failed',
-          details: 'Report polling timed out. Refresh and retry or check backend logs.',
-        },
-      ]);
-      return;
-    }
-    // Wait for animation to finish on first poll attempt
-    if (attempts === 0 && delayMs > 0) {
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-    try {
-      const res = await fetch(`/api/report/${docId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.report || data.policy_summary) {
-          setReport(data.report || data);
-          setIsProcessing(false);
-          triggerFinalAgents();
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('Poll Report Error:', err);
-    }
-    setTimeout(() => pollForReport(docId, attempts + 1), 1200);
-  };
-
-
-  const handleResolveAudit = async (claimId: string, approved: boolean) => {
-    if (!documentId) return;
-    try {
-      await fetch(`/api/audit/${documentId}/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claim_id: claimId, approved, action: approved ? 'APPROVE' : 'REJECT' }),
-      });
-      fetchReport(documentId);
-    } catch (e) {
-      console.error('Resolve Audit Error:', e);
-    }
-  };
-
-  const handleGenerateAction = async (selectedGrievances?: string[]) => {
-    if (!report) return;
-    try {
-      const res = await fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          report,
-          ...(selectedGrievances && selectedGrievances.length > 0
-            ? { selected_grievances: selectedGrievances }
-            : {}),
-        }),
-      });
-      const data = await res.json();
-      setActionArtifact(data);
-      setIsActionOpen(true);
-    } catch (err) {
-      console.error('Action Agent Error:', err);
-    }
-  };
+  const positiveCount = unifiedImpacts.filter((i) => i.polarity === 'positive').length;
+  const negativeCount = unifiedImpacts.filter((i) => i.polarity === 'negative').length;
+  const mixedCount    = unifiedImpacts.filter((i) => i.polarity === 'neutral_mixed').length;
+  const totalImpacts  = unifiedImpacts.length;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col font-sans pb-16">
-      <Navbar reliabilityScore={reliabilityScore} />
+    <div className="animate-in min-h-screen" style={{ background: 'var(--bg-base)' }}>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
-        
-        {/* Hero & Upload Panel */}
-        <section className="glass-panel rounded-3xl p-8 border border-slate-800 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* ── Header ── */}
+      <div className="page-header">
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+          Analysis Overview
+        </h1>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          Upload a municipal document or select a sample to begin.
+        </p>
+      </div>
 
-          <div className="max-w-3xl mb-8">
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-sky-300 bg-clip-text text-transparent mb-3">
-              Municipal Transparency & Citizen Impact Reporting
-            </h1>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Upload dense municipal PDF notices (zoning amendments, council agendas, RTI replies). 
-              Our 12-agent network verifies legal claims against statutory legal frameworks, checks policy reversals, and drafts ready-to-file objection letters with 100% source line provenance.
-            </p>
+      <div className="page-body space-y-5">
+
+        {/* ── Upload Form ── */}
+        <div
+          className="rounded-lg p-5"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        >
+          <div className="text-xs font-semibold mb-3" style={{ color: 'var(--text-muted)' }}>
+            Document Analysis
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
-            
-            {/* PDF File Upload Box */}
-            <div className="md:col-span-2 glass-card rounded-2xl p-6 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <label className="text-xs font-bold text-sky-400 uppercase tracking-wider block mb-3">
-                  Upload Municipal PDF Notice
-                </label>
-                <div className="border-2 border-dashed border-slate-700 hover:border-sky-500/60 rounded-xl p-6 text-center transition-all cursor-pointer bg-slate-900/40">
-                  <input
-                    type="file"
-                    accept=".pdf,.txt"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                    id="pdf-upload-input"
-                  />
-                  <label htmlFor="pdf-upload-input" className="cursor-pointer flex flex-col items-center">
-                    <Upload className="w-8 h-8 text-sky-400 mb-2" />
-                    <span className="text-xs text-slate-200 font-semibold">
-                      {file ? file.name : 'Click to upload PDF or drag & drop file'}
-                    </span>
-                    <span className="text-[11px] text-slate-500 mt-1">Supports BBMP, BDA, Panchayats (scanned OCR enabled)</span>
-                  </label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Upload zone */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="pdf-upload-input"
+                className={`upload-zone block ${file ? 'has-file' : ''}`}
+              >
+                <input
+                  type="file"
+                  accept=".pdf,.txt"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  id="pdf-upload-input"
+                />
+                <Upload className="w-5 h-5 mx-auto mb-2" style={{ color: file ? 'var(--accent)' : 'var(--text-faint)' }} />
+                <div className="text-sm font-medium" style={{ color: file ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                  {file ? file.name : 'Click to upload PDF or TXT'}
                 </div>
-              </div>
+                <div className="text-xs mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                  BBMP, BDA, Panchayat notices · OCR enabled
+                </div>
+              </label>
             </div>
 
-            {/* Sample Selector & Launch Button */}
-            <div className="glass-card rounded-2xl p-6 border border-slate-800 flex flex-col justify-between space-y-4">
+            {/* Sample + launch */}
+            <div className="flex flex-col gap-2.5">
               <div>
-                <label className="text-xs font-bold text-sky-400 uppercase tracking-wider block mb-2">
-                  Or Pick Pre-Loaded Notice
-                </label>
+                <div className="text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                  Or use a sample
+                </div>
                 <select
                   value={selectedSample}
-                  onChange={(e) => {
-                    setSelectedSample(e.target.value);
-                    setFile(null);
-                  }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                  onChange={(e) => { setSelectedSample(e.target.value); setFile(null); }}
+                  className="input w-full"
                 >
-                  <option value="">Select sample document...</option>
-                  <option value="bda_zoning_notice.pdf">BDA Zoning Notice (Ward 150)</option>
-                  <option value="bbmp_council_agenda.pdf">BBMP Council Agenda & Tax Revision</option>
-                  <option value="rti_response.pdf">RTI Online Response Notice</option>
+                  <option value="">Select sample…</option>
+                  {samples.length > 0
+                    ? samples.map((s) => <option key={s} value={s}>{s}</option>)
+                    : (
+                      <>
+                        <option value="bda_zoning_notice.pdf">BDA Zoning Notice (Ward 150)</option>
+                        <option value="bbmp_council_agenda.pdf">BBMP Council Agenda & Tax Revision</option>
+                        <option value="rti_response.pdf">RTI Online Response Notice</option>
+                      </>
+                    )
+                  }
                 </select>
               </div>
 
               <button
                 type="button"
+                id="analyze-btn"
                 onClick={handleUploadAndRun}
                 disabled={isProcessing}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-600 via-indigo-600 to-sky-500 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                className="btn btn-primary w-full"
+                style={{ paddingTop: '0.625rem', paddingBottom: '0.625rem' }}
               >
                 {isProcessing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Executing 12-Agent Pipeline...</span>
-                  </>
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /><span>Running…</span></>
                 ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>Analyze Document &amp; Audit Claims</span>
-                  </>
+                  <><Play className="w-3.5 h-3.5 fill-current" /><span>Analyze Document</span></>
                 )}
               </button>
             </div>
-
           </div>
-        </section>
+        </div>
 
-        {/* WebSocket Live Trace Panel */}
-        {(isProcessing || events.length > 0) && (
-          <LiveTraceStepper
-            events={events}
-            currentStage={currentStage}
-            plannerJson={plannerJson}
-          />
+        {/* ── Processing status ── */}
+        {isProcessing && (
+          <div
+            className="rounded-lg px-4 py-3 animate-in"
+            style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent-border)' }}
+          >
+            <div className="flex items-center gap-3">
+              <Cpu className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--accent)' }} />
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {runningAgent ? runningAgent : 'Initializing pipeline…'}
+              </span>
+              <span className="ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
+                {completedCount}/12
+              </span>
+            </div>
+            <div className="mt-2 progress-bar">
+              <div
+                className="progress-fill"
+                style={{ width: `${(completedCount / 12) * 100}%`, background: 'var(--accent)' }}
+              />
+            </div>
+            <div className="mt-1.5 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Executing multi-agent verification pipeline — this might take a while.
+            </div>
+          </div>
         )}
 
-        {/* Final Audit Report View */}
+        {/* ── Results ── */}
         {report && (
-          <ReportView
-            report={report}
-            onOpenProvenance={(claim) => {
-              setActiveClaim(claim);
-              setIsProvenanceOpen(true);
-            }}
-            onOpenAction={handleGenerateAction}
-            onResolveAudit={handleResolveAudit}
-          />
+          <div className="space-y-4 animate-in">
+
+            {/* Verdict + summary */}
+            <div
+              className="rounded-lg"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+            >
+              {/* Title row */}
+              <div
+                className="px-5 py-3.5 flex items-center gap-3 flex-wrap"
+                style={{ borderBottom: '1px solid var(--border)' }}
+              >
+                <VerdictChip verdict={report.overall_verdict} />
+                {report.jurisdiction && (
+                  <span className="chip chip-accent">
+                    {report.jurisdiction.replace(/_/g, ' ')}
+                  </span>
+                )}
+                {completedCount > 0 && (
+                  <span className="ml-auto chip chip-neutral flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" style={{ color: 'var(--success)' }} />
+                    {completedCount}/12 agents
+                    {failedCount > 0 && <span style={{ color: 'var(--danger)' }}> · {failedCount} failed</span>}
+                  </span>
+                )}
+              </div>
+
+              {/* Summary text */}
+              <div className="px-5 py-4">
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: '72ch' }}>
+                  {report.policy_summary}
+                </p>
+
+                {/* Addressee */}
+                {report.stated_objection_authority && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Addressee:</span>
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {report.stated_objection_authority}
+                    </span>
+                    {report.authority_status && (
+                      <span
+                        className="chip"
+                        style={{
+                          background: report.authority_status === 'ADMITTED' ? 'var(--success-dim)' : 'var(--danger-dim)',
+                          color: report.authority_status === 'ADMITTED' ? 'var(--success)' : '#f87171',
+                          border: 'none',
+                        }}
+                      >
+                        {report.authority_status}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Stats row */}
+              <div
+                className="px-5 py-3 grid grid-cols-2 md:grid-cols-4 gap-4"
+                style={{ borderTop: '1px solid var(--border)' }}
+              >
+                {[
+                  { label: 'Stakeholders', value: stakeholderCount, Icon: FileText },
+                  { label: 'Risk Flags',   value: riskFlags.length, Icon: AlertTriangle,
+                    color: riskFlags.length > 0 ? 'var(--warning)' : undefined },
+                  { label: 'Legal Citations', value: legalCitations, Icon: Scale },
+                  { label: 'Verified Claims', value: verifiedClaims, Icon: Shield,
+                    color: verifiedClaims > 0 ? 'var(--success)' : undefined },
+                ].map(({ label, value, Icon, color }) => (
+                  <div key={label} className="flex items-center gap-2.5">
+                    <Icon className="w-4 h-4 flex-shrink-0" style={{ color: color || 'var(--text-faint)' }} />
+                    <div>
+                      <div
+                        className="text-base font-semibold leading-none"
+                        style={{ color: color || 'var(--text-primary)', letterSpacing: '-0.01em' }}
+                      >
+                        {value}
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {label}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Risk flags */}
+            {riskFlags.length > 0 && (
+              <div
+                className="rounded-lg"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+              >
+                <div
+                  className="px-5 py-3 flex items-center gap-2"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" style={{ color: 'var(--warning)' }} />
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    Risk Flags
+                  </span>
+                  <span className="ml-auto chip chip-neutral">{riskFlags.length}</span>
+                </div>
+                <ul>
+                  {riskFlags.slice(0, 4).map((flag, i) => (
+                    <li
+                      key={i}
+                      className="px-5 py-2.5 flex items-start gap-3 text-sm"
+                      style={{
+                        borderBottom: i < Math.min(riskFlags.length, 4) - 1 ? '1px solid var(--border)' : 'none',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <span
+                        className="mt-0.5 text-[10px] font-bold flex-shrink-0 w-4 h-4 rounded flex items-center justify-center"
+                        style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
+                      >
+                        {i + 1}
+                      </span>
+                      {flag}
+                    </li>
+                  ))}
+                  {riskFlags.length > 4 && (
+                    <li className="px-5 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      + {riskFlags.length - 4} more on the Policy page
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* Impact summary */}
+            {totalImpacts > 0 && (
+              <div
+                className="rounded-lg"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+              >
+                <div
+                  className="px-5 py-3 flex items-center gap-3"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    Impact Summary
+                  </span>
+
+                  {/* Polarity balance bar */}
+                  <div className="flex-1 max-w-32">
+                    <div className="polarity-bar">
+                      {positiveCount > 0 && (
+                        <div className="polarity-positive flex-1 rounded-sm" style={{ flex: positiveCount }} />
+                      )}
+                      {negativeCount > 0 && (
+                        <div className="polarity-negative flex-1 rounded-sm" style={{ flex: negativeCount }} />
+                      )}
+                      {mixedCount > 0 && (
+                        <div className="polarity-mixed flex-1 rounded-sm" style={{ flex: mixedCount }} />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {positiveCount > 0 && (
+                      <span><span style={{ color: 'var(--success)' }}>{positiveCount}</span> positive</span>
+                    )}
+                    {negativeCount > 0 && (
+                      <span><span style={{ color: 'var(--danger)' }}>{negativeCount}</span> negative</span>
+                    )}
+                    {mixedCount > 0 && (
+                      <span><span style={{ color: 'var(--warning)' }}>{mixedCount}</span> mixed</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Top impacts */}
+                <div>
+                  {unifiedImpacts.slice(0, 3).map((impact, i) => (
+                    <div
+                      key={i}
+                      className={`impact-row ${impact.polarity === 'positive' ? 'positive' : impact.polarity === 'negative' ? 'negative' : 'mixed'}`}
+                    >
+                      <p className="text-sm flex-1" style={{ color: 'var(--text-secondary)' }}>
+                        {impact.text}
+                      </p>
+                    </div>
+                  ))}
+                  {totalImpacts > 3 && (
+                    <div className="px-5 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {totalImpacts - 3} more on Stakeholders page
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-      </main>
+        {/* ── Empty state ── */}
+        {!report && !isProcessing && (
+          <div
+            className="rounded-lg p-10 text-center"
+            style={{ border: '1px dashed var(--border)', background: 'var(--bg-surface)' }}
+          >
+            <AlertOctagon className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--text-faint)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              No analysis yet
+            </p>
+            <p className="text-xs mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-muted)' }}>
+              Upload a municipal notice or select a pre-loaded sample above, then click Analyze.
+            </p>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-faint)' }}>
+              This might take a while as agents analyze, cross-verify, and ground the document.
+            </p>
+          </div>
+        )}
 
-      {/* Modals */}
-      <ActionModal
-        isOpen={isActionOpen}
-        onClose={() => setIsActionOpen(false)}
-        actionArtifact={actionArtifact}
-      />
-
-      <ProvenanceModal
-        isOpen={isProvenanceOpen}
-        onClose={() => setIsProvenanceOpen(false)}
-        claim={activeClaim}
-      />
+      </div>
     </div>
   );
 }
