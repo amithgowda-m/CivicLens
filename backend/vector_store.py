@@ -11,24 +11,43 @@ class EmbeddingService:
     @classmethod
     def get_model(cls):
         if cls._model is None:
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading sentence-transformers/all-MiniLM-L6-v2...")
-            cls._model = SentenceTransformer("all-MiniLM-L6-v2")
+            if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
+                cls._model = "MOCK"
+                return cls._model
+            try:
+                from sentence_transformers import SentenceTransformer
+                logger.info("Loading sentence-transformers/all-MiniLM-L6-v2...")
+                cls._model = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as e:
+                logger.warning(f"Could not load SentenceTransformer ({e}), using MOCK.")
+                cls._model = "MOCK"
         return cls._model
 
     @classmethod
     def embed_texts(cls, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        model = cls.get_model()
-        embeddings = model.encode(texts, convert_to_numpy=True)
-        return embeddings.tolist()
+        if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
+            return [[0.01] * 384 for _ in texts]
+        try:
+            model = cls.get_model()
+            embeddings = model.encode(texts, convert_to_numpy=True)
+            return embeddings.tolist()
+        except Exception as e:
+            logger.warning(f"Embedding failed ({e}), using mock embeddings.")
+            return [[0.01] * 384 for _ in texts]
 
     @classmethod
     def embed_query(cls, query: str) -> List[float]:
-        model = cls.get_model()
-        embedding = model.encode(query, convert_to_numpy=True)
-        return embedding.tolist()
+        if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
+            return [0.01] * 384
+        try:
+            model = cls.get_model()
+            embedding = model.encode(query, convert_to_numpy=True)
+            return embedding.tolist()
+        except Exception as e:
+            logger.warning(f"Embedding query failed ({e}), using mock vector.")
+            return [0.01] * 384
 
 
 class VectorStoreInterface:

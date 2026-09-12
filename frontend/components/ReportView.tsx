@@ -13,7 +13,8 @@ import {
   ExternalLink,
   ArrowRight,
   UserCheck,
-  AlertOctagon
+  AlertOctagon,
+  Loader2
 } from 'lucide-react';
 
 export interface ReportDataPayload {
@@ -38,7 +39,7 @@ export interface ReportDataPayload {
 interface ReportViewProps {
   report: ReportDataPayload;
   onOpenProvenance: (claim: any) => void;
-  onOpenAction: () => void;
+  onOpenAction: () => Promise<void>;
   onResolveAudit?: (claimId: string, approved: boolean) => void;
 }
 
@@ -49,6 +50,16 @@ export const ReportView: React.FC<ReportViewProps> = ({
   onResolveAudit,
 }) => {
   const [lang, setLang] = useState<'en' | 'kn'>('en');
+  const [isGeneratingAction, setIsGeneratingAction] = useState(false);
+
+  const handleActionClick = async () => {
+    setIsGeneratingAction(true);
+    try {
+      await onOpenAction();
+    } finally {
+      setIsGeneratingAction(false);
+    }
+  };
 
   const isKannadaAvailable = Boolean(report.kannada_translation?.policy_summary);
 
@@ -116,19 +127,30 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
           {/* Verdict Gated Action Button */}
           <button
-            onClick={onOpenAction}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center space-x-2 ${
+            type="button"
+            onClick={handleActionClick}
+            disabled={isGeneratingAction}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center space-x-2 disabled:opacity-60 ${
               report.overall_verdict === 'positive'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-emerald-900/40'
                 : 'bg-gradient-to-r from-rose-600 to-amber-600 text-white hover:from-rose-500 hover:to-amber-500 shadow-rose-900/40'
             }`}
           >
-            <span>
-              {report.overall_verdict === 'positive'
-                ? 'Generate Citizen Bulletin'
-                : 'Draft Formal Objection Petition'}
-            </span>
-            <ArrowRight className="w-4 h-4" />
+            {isGeneratingAction ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Drafting Letter...</span>
+              </>
+            ) : (
+              <>
+                <span>
+                  {report.overall_verdict === 'positive'
+                    ? 'Generate Citizen Bulletin'
+                    : 'Draft Formal Objection Petition'}
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -247,7 +269,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                   </div>
                   {item.statute_excerpt && (
                     <p className="text-slate-400 text-[11px] font-mono mt-1 bg-slate-950/60 p-2 rounded border border-slate-800/80">
-                      "{item.statute_excerpt}"
+                      &ldquo;{item.statute_excerpt}&rdquo;
                     </p>
                   )}
                 </div>

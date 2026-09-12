@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from typing import Optional, Dict, Any, Type
 import httpx
@@ -119,28 +120,59 @@ class LLMClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        model = self.model
-        if not model or model.startswith("llama3.1:8b") or model.startswith("gpt-4"):
-            model = "openai/gpt-oss-120b"
+        candidate_models = ["openai/gpt-oss-120b", "groq/compound", "qwen/qwen3.8-27b"]
+        if self.model and self.model in candidate_models:
+            candidate_models.remove(self.model)
+            candidate_models.insert(0, self.model)
+        elif self.model:
+            candidate_models.insert(0, self.model)
 
-        payload: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.1
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
-
+        last_error = None
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+            for model in candidate_models:
+                payload: Dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1
+                }
+                if json_mode:
+                    payload["response_format"] = {"type": "json_object"}
+
+                for attempt in range(3):
+                    try:
+                        response = await client.post(url, headers=headers, json=payload)
+                        if response.status_code == 429:
+                            wait_time = min(2 ** attempt + 1, 10)
+                            if attempt < 2:
+                                logger.warning(f"Groq rate limited (429) on model '{model}', retrying in {wait_time}s...")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                last_error = httpx.HTTPStatusError("Groq 429 Rate Limit Exceeded", request=response.request, response=response)
+                                break
+                        response.raise_for_status()
+                        data = response.json()
+                        return data["choices"][0]["message"]["content"]
+                    except httpx.HTTPStatusError as err:
+                        last_error = err
+                        if err.response.status_code == 429 and attempt == 0:
+                            await asyncio.sleep(1)
+                            continue
+                        break
+                    except Exception as err:
+                        last_error = err
+                        break
+        if last_error:
+            raise last_error
+        raise LLMGenerationError("Groq requests failed.")
 
     async def _call_ollama(self, prompt: str, system_prompt: str, json_mode: bool) -> str:
         url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+        model = self.model
+        if not model or "gemini" in model or "gpt" in model or "claude" in model or "groq" in model:
+            model = "llama3.1:8b"
         payload = {
-            "model": self.model if self.model else "llama3.1:8b",
+            "model": model,
             "prompt": prompt,
             "system": system_prompt,
             "stream": False,
@@ -156,7 +188,10 @@ class LLMClient:
 
     async def _call_gemini(self, prompt: str, system_prompt: str, json_mode: bool) -> str:
         # Google Generative AI REST API endpoint
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model or 'gemini-1.5-flash'}:generateContent?key={settings.GEMINI_API_KEY}"
+        model = self.model
+        if not model or not model.startswith("gemini"):
+            model = "gemini-2.0-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={settings.GEMINI_API_KEY}"
         contents = []
         if system_prompt:
             contents.append({"role": "user", "parts": [{"text": f"System Instructions: {system_prompt}"}]})

@@ -1,51 +1,216 @@
 import logging
-from typing import Dict, Any
-from backend.schemas import ActionArtifact, ReportData
+from typing import Dict, Any, List
+from backend.schemas import ActionArtifact, ReportData, LegalGroundingResult, VerifiedClaim
+from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.action")
 
+
+def _build_objection_prompt(report: ReportData) -> str:
+    """Constructs a detailed prompt for LLM to draft a formal objection letter from real report data."""
+
+    # Gather key negative impacts and risk flags
+    negative_points = "\n".join(f"- {p}" for p in report.negative_impacts) or "- General concerns raised."
+    risk_points = "\n".join(f"- {r}" for r in report.risk_flags) or "- No explicit risk flags."
+
+    # Gather legal groundings (statute citations)
+    legal_refs = []
+    for g in report.legal_grounding:
+        if g.matched_statute_section:
+            legal_refs.append(f"Section {g.matched_statute_section} of {g.statute_name or 'applicable statute'}")
+    legal_refs_str = ", ".join(legal_refs) if legal_refs else "applicable Karnataka municipal statutes"
+
+    # Gather affected stakeholders
+    stakeholders = ", ".join(report.stakeholders_impacted) if report.stakeholders_impacted else "affected citizens"
+
+    # Gather high-confidence admitted claims for grounding the letter
+    admitted_claims = [
+        c for c in report.claim_confidence
+        if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
+    ]
+    claim_texts = []
+    for c in admitted_claims[:5]:  # use up to 5 admitted claims
+        text = c.get("text") or c.get("clause_text", "")
+        page = c.get("page", "?")
+        if text:
+            claim_texts.append(f'- (Page {page}) "{text[:200]}..."' if len(text) > 200 else f'- (Page {page}) "{text}"')
+    claims_block = "\n".join(claim_texts) if claim_texts else "- (See attached document for source clauses)"
+
+    # Extract deadline if available from any clause
+    deadline = "Within 30 days of public notice publication"
+    for c in report.claim_confidence:
+        d = c.get("objection_deadline")
+        if d:
+            deadline = d
+            break
+
+    # Ward/locality
+    ward_info = ""
+    for c in report.claim_confidence:
+        w = c.get("ward")
+        if w:
+            ward_info = f" (Ward: {w})"
+            break
+
+    prompt = f"""You are a legal drafting assistant for civic advocacy in Karnataka, India.
+
+Draft a formal objection letter to municipal authorities based on the following verified analysis of a municipal document.
+The letter must be professional, cite the exact legal statutes provided, reference the specific source document claims,
+and clearly state the citizen objections and remedies requested.
+
+=== REPORT SUMMARY ===
+Overall Verdict: {report.overall_verdict.upper()}
+Policy Summary: {report.policy_summary}
+
+=== AFFECTED STAKEHOLDERS ===
+{stakeholders}{ward_info}
+
+=== NEGATIVE IMPACTS IDENTIFIED ===
+{negative_points}
+
+=== RISK FLAGS ===
+{risk_points}
+
+=== VERIFIED SOURCE CLAIMS (verbatim from document) ===
+{claims_block}
+
+=== LEGAL BASIS ===
+Citations: {legal_refs_str}
+Dropped/unverified claims count: {report.dropped_claims_count}
+
+=== DRAFT INSTRUCTIONS ===
+- Address: The Commissioner / Joint Commissioner, Bruhat Bengaluru Mahanagara Palike (BBMP) / BDA (pick the more appropriate one based on context)
+- Subject line: Specific to the policy identified
+- Format: Formal government letter format
+- Body: 4-5 paragraphs covering: (1) Reference to the notice, (2) Specific objections with legal citations, (3) Impact on affected groups, (4) Remedy/relief requested, (5) Request for public consultation
+- Deadline reference: {deadline}
+- Closing: Signed as "Aggrieved Citizens and Residents Welfare Association"
+- Do NOT use placeholder text like [Name] or [Date] — write it as a ready-to-use draft
+
+Output ONLY the letter text, no preamble or explanation."""
+
+    return prompt
+
+
+def _build_awareness_prompt(report: ReportData) -> str:
+    """Constructs a prompt for LLM to draft a positive community awareness bulletin."""
+
+    positive_points = "\n".join(f"- {p}" for p in report.positive_impacts) or "- Positive municipal development."
+    stakeholders = ", ".join(report.stakeholders_impacted) if report.stakeholders_impacted else "community members"
+
+    prompt = f"""You are a civic communications officer for a Resident Welfare Association in Karnataka, India.
+
+Draft a clear, engaging community awareness bulletin based on the following verified analysis of a municipal policy.
+The bulletin should be easy for ordinary citizens to understand and encourage participation.
+
+=== POLICY SUMMARY ===
+{report.policy_summary}
+
+=== POSITIVE IMPACTS ===
+{positive_points}
+
+=== AFFECTED COMMUNITY ===
+{stakeholders}
+
+=== INSTRUCTIONS ===
+- Format: Community bulletin / newsletter entry
+- Tone: Informative, positive, accessible (no legal jargon)
+- Include: What the policy does, who benefits, how residents can engage or support it
+- Length: 3-4 short paragraphs
+- End with a call to action for residents
+
+Output ONLY the bulletin text, no preamble or explanation."""
+
+    return prompt
+
+
 async def generate_action_artifact(report: ReportData) -> ActionArtifact:
     """
-    Action Agent: Generates targeted civic engagement artifacts on demand:
-    - If verdict is negative or mixed: Formal objection petition citing real clauses & deadlines
-    - If verdict is positive: Public awareness summary for community groups
-    """
-    logger.info(f"Generating on-demand action artifact for verdict: {report.overall_verdict}")
+    Action Agent: Dynamically generates civic engagement artifacts using the LLM
+    and the actual verified claims, legal groundings, and impact data from the report.
 
-    if report.overall_verdict in ("negative", "mixed"):
-        content = (
-            "FORMAL OBJECTION PETITION UNDER SECTION 14 OF KTCP ACT 1961\n\n"
-            "To: The Joint Commissioner, Bruhat Bengaluru Mahanagara Palike (BBMP)\n"
-            "Subject: Objection to Proposed Commercial Setback & Tax Revisions in Ward 150\n\n"
-            "Respected Authority,\n\n"
-            "With reference to the public notice published regarding commercial setback adjustments and "
-            "Section 108A tax revisions, we hereby record our formal objections:\n\n"
-            "1. Grounding Discrepancy: The 3.0m setback disproportionately penalizes small commercial plots under 2000 sq ft.\n"
-            "2. Unmitigated Negative Economic Impact: Local shop tenants face undue overhead without infrastructure improvement.\n\n"
-            "We request a public consultation before final gazette notification.\n\n"
-            "Sincerely,\n"
-            "Aggrieved Residents and Commercial Stakeholders of Ward 150"
-        )
-        return ActionArtifact(
-            action_type="objection_letter",
-            content=content,
-            target_deadline="Within 30 days of public notice",
-            recipient_authority="Joint Commissioner, BBMP",
-            cited_clauses=["cl_01", "cl_02"]
+    - negative/mixed verdict → Formal objection petition with real clause citations
+    - positive verdict → Community awareness bulletin
+    """
+    logger.info(f"Generating dynamic action artifact for verdict: {report.overall_verdict}")
+
+    is_objection = report.overall_verdict in ("negative", "mixed")
+
+    # Determine cited clause IDs from the report
+    cited_ids = [
+        c.get("id", c.get("clause_id", ""))
+        for c in report.claim_confidence
+        if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
+    ][:6]  # cap at 6
+
+    # Determine recipient authority from legal grounding or default
+    recipient = "Joint Commissioner, Bruhat Bengaluru Mahanagara Palike (BBMP)"
+    for g in report.legal_grounding:
+        if g.statute_name and "BDA" in g.statute_name:
+            recipient = "Commissioner, Bangalore Development Authority (BDA)"
+            break
+
+    # Extract deadline
+    deadline = "Within 30 days of public notice publication"
+    for c in report.claim_confidence:
+        d = c.get("objection_deadline")
+        if d:
+            deadline = d
+            break
+
+    # Build prompt and call LLM
+    if is_objection:
+        prompt = _build_objection_prompt(report)
+        action_type = "objection_letter"
+        system = (
+            "You are an expert civic legal drafting assistant specializing in Karnataka municipal law. "
+            "Write formal, professional objection letters for citizen advocacy."
         )
     else:
-        content = (
-            "COMMUNITY CIVIC BULLETIN: PROPOSED MUNICIPAL ENHANCEMENTS\n\n"
-            "Summary of Ward Notice:\n"
-            f"{report.policy_summary}\n\n"
-            "Key Positive Highlights:\n"
-            + "\n".join(f"- {p}" for p in report.positive_impacts)
-            + "\n\nShare this update with fellow ward residents to support timely implementation!"
+        prompt = _build_awareness_prompt(report)
+        action_type = "awareness_summary"
+        system = (
+            "You are a civic communications officer writing accessible community bulletins "
+            "about positive municipal policies for ordinary citizens."
         )
-        return ActionArtifact(
-            action_type="awareness_summary",
-            content=content,
-            target_deadline="N/A",
-            recipient_authority="Ward Committee & Resident Welfare Associations",
-            cited_clauses=["cl_01"]
+
+    try:
+        content = await llm_client.generate_text(
+            prompt=prompt,
+            system_prompt=system,
+            json_mode=False
         )
+        logger.info(f"LLM generated {action_type} successfully ({len(content)} chars)")
+    except Exception as e:
+        logger.error(f"LLM generation failed for action agent: {e}, using structured fallback")
+        # Structured fallback using real report data — still better than old hardcoded version
+        if is_objection:
+            neg = "\n".join(f"  {i+1}. {p}" for i, p in enumerate(report.negative_impacts[:4]))
+            content = (
+                f"FORMAL OBJECTION PETITION\n\n"
+                f"To: {recipient}\n"
+                f"Subject: Formal Objection to Proposed Municipal Policy\n\n"
+                f"Respected Authority,\n\n"
+                f"We write with reference to the recently published municipal notice. "
+                f"Our verified analysis identifies the following concerns:\n\n"
+                f"{neg}\n\n"
+                f"We respectfully request a public consultation hearing before final notification.\n\n"
+                f"Deadline for response: {deadline}\n\n"
+                f"Sincerely,\nAggrieved Citizens and Residents Welfare Association"
+            )
+        else:
+            pos = "\n".join(f"  - {p}" for p in report.positive_impacts[:4])
+            content = (
+                f"COMMUNITY CIVIC BULLETIN\n\n"
+                f"Summary: {report.policy_summary}\n\n"
+                f"Key Benefits:\n{pos}\n\n"
+                f"Share this with your fellow ward residents!"
+            )
+
+    return ActionArtifact(
+        action_type=action_type,
+        content=content.strip(),
+        target_deadline=deadline,
+        recipient_authority=recipient,
+        cited_clauses=cited_ids if cited_ids else ["See report for source references"]
+    )

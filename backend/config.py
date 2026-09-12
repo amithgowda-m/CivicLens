@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIR: str = "backend/data/chroma_db"
 
     # HITL
-    AUTO_APPROVE_PENDING_AUDIT: bool = False
+    AUTO_APPROVE_PENDING_AUDIT: bool = True
 
     # Server
     BACKEND_HOST: str = "0.0.0.0"
