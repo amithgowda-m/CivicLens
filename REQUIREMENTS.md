@@ -163,7 +163,7 @@ Key configuration settings:
 ## 6. Deliverable Checkpoints
 
 - [x] **Checkpoint 1**: Scaffold + Docker/Chroma dual backend + Pydantic schemas + LangGraph pipeline stubs + automated test suite passing.
-- [ ] **Checkpoint 2**: Extraction + Verification ensemble working on real municipal PDF documents.
+- [x] **Checkpoint 2**: Extraction + Verification ensemble working on real municipal PDF documents.
 - [ ] **Checkpoint 3**: Legal Grounding (KTCP Act 1961 & GBGA 2024 indexing) + Impact Analysis + Critic Agent.
 - [ ] **Checkpoint 4**: Report Generation Agent (English) + On-Demand Action Agent.
 - [ ] **Checkpoint 5**: Next.js 14 frontend with real-time WebSocket trace stepper and report view.
