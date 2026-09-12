@@ -73,11 +73,22 @@ class ContradictionRecord(BaseModel):
     contradiction_flag: bool = False
     notes: Optional[str] = None
 
+class ImpactItem(BaseModel):
+    """Unified impact entry carrying both Impact Analysis Agent and Critic Agent perspectives."""
+    text: str = Field(description="The impact description shown to the user")
+    polarity: Literal["positive", "negative", "neutral_mixed"] = Field(description="Agent's polarity assessment")
+    affected_group: str = Field(description="Specific stakeholder group affected")
+    impact_reasoning: str = Field(description="Impact Analysis Agent's reasoning")
+    critic_confirmed: Optional[bool] = None
+    critic_note: Optional[str] = None
+    overlooked_subgroups: List[str] = Field(default_factory=list)
+
 class ReportData(BaseModel):
     policy_summary: str
     stakeholders_impacted: List[str] = Field(default_factory=list)
     positive_impacts: List[str] = Field(default_factory=list)
     negative_impacts: List[str] = Field(default_factory=list)
+    impacts: List[ImpactItem] = Field(default_factory=list, description="Unified impacts with dual-agent perspectives")
     risk_flags: List[str] = Field(default_factory=list)
     legal_grounding: List[LegalGroundingResult] = Field(default_factory=list)
     claim_confidence: List[Dict[str, Any]] = Field(default_factory=list)

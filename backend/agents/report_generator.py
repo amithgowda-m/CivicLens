@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, List
-from backend.schemas import CivicLensState, ReportData, VerificationStatus
+from backend.schemas import CivicLensState, ReportData, ImpactItem, VerificationStatus
 from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.report_generator")
@@ -34,6 +34,25 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     stakeholders = list(dict.fromkeys([t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]))
     positives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "positive"]))
     negatives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "negative"]))
+
+    # Build unified impacts list with both agents' perspectives
+    seen_impact_texts = set()
+    impacts: List[Dict[str, Any]] = []
+    for t in critic_tags:
+        text = f"{t.get('affected_group', '')}: {t.get('reasoning', '')}".strip()
+        if text in seen_impact_texts:
+            continue
+        seen_impact_texts.add(text)
+        item = ImpactItem(
+            text=text,
+            polarity=t.get("polarity", "neutral_mixed"),
+            affected_group=t.get("affected_group", "General Ward Residents"),
+            impact_reasoning=t.get("reasoning", ""),
+            critic_confirmed=t.get("critic_confirmed"),
+            critic_note=t.get("critic_note"),
+            overlooked_subgroups=t.get("overlooked_subgroups", []),
+        )
+        impacts.append(item.model_dump())
 
     raw_risk_flags = []
     for c in contradictions:
@@ -104,6 +123,7 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         stakeholders_impacted=stakeholders,
         positive_impacts=positives,
         negative_impacts=negatives,
+        impacts=impacts,
         risk_flags=risk_flags,
         legal_grounding=legal_grounding,
         claim_confidence=claim_confidence,

@@ -46,6 +46,7 @@ class AuditResolutionRequest(BaseModel):
 
 class ActionRequest(BaseModel):
     report: ReportData
+    selected_grievances: Optional[List[str]] = None
 
 @app.get("/")
 async def root(request: Request):
@@ -320,8 +321,9 @@ async def invoke_action_agent(req: ActionRequest):
     """
     Action Agent Endpoint (On-Demand only):
     Drafts an objection letter or public awareness summary based on computed report verdict.
+    Accepts optional selected_grievances to scope the objection to specific citizen concerns.
     """
-    artifact = await generate_action_artifact(req.report)
+    artifact = await generate_action_artifact(req.report, selected_grievances=req.selected_grievances)
     return artifact
 
 @app.get("/api/eval")

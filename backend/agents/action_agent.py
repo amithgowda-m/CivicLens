@@ -1,16 +1,17 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from backend.schemas import ActionArtifact, ReportData, LegalGroundingResult, VerifiedClaim
 from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.action")
 
 
-def _build_objection_prompt(report: ReportData) -> str:
+def _build_objection_prompt(report: ReportData, selected_grievances: Optional[List[str]] = None) -> str:
     """Constructs a detailed prompt for LLM to draft a formal objection letter from real report data."""
 
-    # Gather key negative impacts and risk flags
-    negative_points = "\n".join(f"- {p}" for p in report.negative_impacts) or "- General concerns raised."
+    # Use selected grievances if provided, otherwise fall back to all negative impacts
+    grievance_list = selected_grievances if selected_grievances else report.negative_impacts
+    negative_points = "\n".join(f"- {p}" for p in grievance_list) or "- General concerns raised."
     risk_points = "\n".join(f"- {r}" for r in report.risk_flags) or "- No explicit risk flags."
 
     # Gather legal groundings (statute citations)
@@ -124,7 +125,7 @@ Output ONLY the bulletin text, no preamble or explanation."""
     return prompt
 
 
-async def generate_action_artifact(report: ReportData) -> ActionArtifact:
+async def generate_action_artifact(report: ReportData, selected_grievances: Optional[List[str]] = None) -> ActionArtifact:
     """
     Action Agent: Dynamically generates civic engagement artifacts using the LLM
     and the actual verified claims, legal groundings, and impact data from the report.
@@ -160,7 +161,7 @@ async def generate_action_artifact(report: ReportData) -> ActionArtifact:
 
     # Build prompt and call LLM
     if is_objection:
-        prompt = _build_objection_prompt(report)
+        prompt = _build_objection_prompt(report, selected_grievances=selected_grievances)
         action_type = "objection_letter"
         system = (
             "You are an expert civic legal drafting assistant specializing in Karnataka municipal law. "
