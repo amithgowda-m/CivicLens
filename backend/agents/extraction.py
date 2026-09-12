@@ -214,6 +214,11 @@ async def extraction_node(state: CivicLensState) -> Dict[str, Any]:
     # If LLM extracted no valid clauses or was offline, fallback to rule-based verbatim extraction
     if not raw_clauses:
         rule_clauses = rule_based_verbatim_extractor(pages)
+        if len(rule_clauses) > 25:
+            # Prioritize zoning, taxation, deadlines, and environmental infrastructure
+            priority = [c for c in rule_clauses if c.clause_type in ("zoning_regulation", "taxation_rule", "procedural_deadline")]
+            others = [c for c in rule_clauses if c.clause_type not in ("zoning_regulation", "taxation_rule", "procedural_deadline")]
+            rule_clauses = (priority + others)[:25]
         raw_clauses = [c.model_dump() for c in rule_clauses]
 
     logger.info(f"Extraction Agent produced {len(raw_clauses)} verified verbatim clauses.")

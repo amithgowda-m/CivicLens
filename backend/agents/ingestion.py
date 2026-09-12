@@ -22,7 +22,7 @@ def extract_pdf_pages(pdf_bytes: bytes, ocr_available: bool) -> List[str]:
     
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page_idx, page in enumerate(pdf.pages):
-            text = page.extract_text(layout=True) or page.extract_text() or ""
+            text = page.extract_text() or page.extract_text(layout=True) or ""
             
             # If text is empty or sparse, and OCR is available, run OCR on the page image
             if len(text.strip()) < 20 and ocr_available:
