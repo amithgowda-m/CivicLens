@@ -19,8 +19,12 @@ class NLIEvaluator:
                 return cls._model
             try:
                 from sentence_transformers import CrossEncoder
-                logger.info("Initializing CrossEncoder('cross-encoder/nli-deberta-v3-base')...")
-                cls._model = CrossEncoder("cross-encoder/nli-deberta-v3-base")
+                try:
+                    cls._model = CrossEncoder("cross-encoder/nli-deberta-v3-base", local_files_only=True)
+                    logger.info("Loaded CrossEncoder('cross-encoder/nli-deberta-v3-base') from local cache.")
+                except Exception:
+                    logger.info("Local NLI weights not fully cached yet. Using deterministic containment fallback for instant response.")
+                    cls._model = "MOCK"
             except Exception as e:
                 logger.warning(f"Could not load local NLI cross-encoder ({e}). Using mock heuristic.")
                 cls._model = "MOCK"
@@ -56,12 +60,15 @@ class NLIEvaluator:
             logger.error(f"NLI evaluation error: {err}")
             return 0.85
 
+_llm_service_available: Optional[bool] = None
+
 async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
     """
     Independent LLM-judge call evaluating factual entailment:
     'does this claim follow strictly from the quoted source text?'
     """
-    if os.environ.get("CIVICLENS_MOCK_NLI") != "1":
+    global _llm_service_available
+    if os.environ.get("CIVICLENS_MOCK_NLI") != "1" and _llm_service_available is not False:
         system_prompt = (
             "You are an impartial municipal audit judge. Evaluate whether the extracted civic claim "
             "follows strictly and verbatim from the provided source text."
@@ -81,6 +88,7 @@ async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
         try:
             resp = await llm_client.generate_text(prompt, system_prompt=system_prompt, json_mode=True)
             if resp and resp.strip():
+                _llm_service_available = True
                 parsed = json.loads(resp)
                 verdict = parsed.get("verdict", "partial").lower()
                 if verdict not in ("yes", "no", "partial"):
@@ -89,7 +97,8 @@ async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
                 reasoning = str(parsed.get("reasoning", "LLM judge evaluation complete."))
                 return {"verdict": verdict, "score": score, "reasoning": reasoning}
         except Exception as e:
-            logger.info(f"LLM-judge call skipped or timed out ({e}); utilizing strict containment heuristic.")
+            logger.info(f"LLM-judge call skipped or unreachable ({e}); utilizing strict containment heuristic.")
+            _llm_service_available = False
 
     # Deterministic fallback judge
     if claim_text.strip().lower() in premise.lower():

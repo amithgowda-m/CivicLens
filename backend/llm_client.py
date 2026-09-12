@@ -17,6 +17,12 @@ logger = logging.getLogger("civiclens.llm_client")
 class LLMGenerationError(Exception):
     pass
 
+def is_retryable_exception(exc: BaseException) -> bool:
+    # Do not retry on connection refused - daemon is not running!
+    if isinstance(exc, httpx.ConnectError):
+        return False
+    return isinstance(exc, (httpx.HTTPStatusError, TimeoutError))
+
 class LLMClient:
     def __init__(self):
         self.provider = settings.LLM_PROVIDER
@@ -27,7 +33,7 @@ class LLMClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError, TimeoutError)),
+        retry=retry_if_exception_type((httpx.HTTPStatusError, TimeoutError)),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True
     )
