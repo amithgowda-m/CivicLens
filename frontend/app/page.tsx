@@ -235,13 +235,18 @@ export default function Home() {
     }
   };
 
-  const handleGenerateAction = async () => {
+  const handleGenerateAction = async (selectedGrievances?: string[]) => {
     if (!report) return;
     try {
       const res = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report }),
+        body: JSON.stringify({
+          report,
+          ...(selectedGrievances && selectedGrievances.length > 0
+            ? { selected_grievances: selectedGrievances }
+            : {}),
+        }),
       });
       const data = await res.json();
       setActionArtifact(data);

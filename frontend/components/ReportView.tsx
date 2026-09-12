@@ -14,14 +14,18 @@ import {
   ArrowRight,
   UserCheck,
   AlertOctagon,
-  Loader2
+  Loader2,
+  Eye,
 } from 'lucide-react';
+import { ImpactDetailModal, ImpactItemData } from './ImpactDetailModal';
+import { GrievanceSelector } from './GrievanceSelector';
 
 export interface ReportDataPayload {
   policy_summary: string;
   stakeholders_impacted: string[];
   positive_impacts: string[];
   negative_impacts: string[];
+  impacts?: ImpactItemData[];
   risk_flags: string[];
   legal_grounding: any[];
   claim_confidence: any[];
@@ -39,7 +43,7 @@ export interface ReportDataPayload {
 interface ReportViewProps {
   report: ReportDataPayload;
   onOpenProvenance: (claim: any) => void;
-  onOpenAction: () => Promise<void>;
+  onOpenAction: (selectedGrievances?: string[]) => Promise<void>;
   onResolveAudit?: (claimId: string, approved: boolean) => void;
 }
 
@@ -51,11 +55,29 @@ export const ReportView: React.FC<ReportViewProps> = ({
 }) => {
   const [lang, setLang] = useState<'en' | 'kn'>('en');
   const [isGeneratingAction, setIsGeneratingAction] = useState(false);
+  const [activeImpact, setActiveImpact] = useState<ImpactItemData | null>(null);
+  const [isImpactDetailOpen, setIsImpactDetailOpen] = useState(false);
+  const [isGrievanceSelectorOpen, setIsGrievanceSelectorOpen] = useState(false);
 
   const handleActionClick = async () => {
+    // For negative/mixed verdicts, open grievance selector instead of direct generation
+    if (report.overall_verdict !== 'positive' && unifiedImpacts.length > 0) {
+      setIsGrievanceSelectorOpen(true);
+      return;
+    }
     setIsGeneratingAction(true);
     try {
       await onOpenAction();
+    } finally {
+      setIsGeneratingAction(false);
+    }
+  };
+
+  const handleGrievanceSubmit = async (selectedGrievances: string[]) => {
+    setIsGrievanceSelectorOpen(false);
+    setIsGeneratingAction(true);
+    try {
+      await onOpenAction(selectedGrievances);
     } finally {
       setIsGeneratingAction(false);
     }
@@ -65,9 +87,38 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
   // Deduplicate array data to guarantee clean, non-repetitive UI presentation
   const stakeholders = Array.from(new Set(report.stakeholders_impacted || []));
-  const positiveImpacts = Array.from(new Set(report.positive_impacts || []));
-  const negativeImpacts = Array.from(new Set(report.negative_impacts || []));
   const riskFlags = Array.from(new Set(report.risk_flags || []));
+
+  // Build unified impacts: prefer structured impacts field, fall back to legacy positive/negative arrays
+  const unifiedImpacts: ImpactItemData[] = (() => {
+    if (report.impacts && report.impacts.length > 0) {
+      return report.impacts;
+    }
+    // Fallback: synthesize from legacy fields
+    const positiveImpacts = Array.from(new Set(report.positive_impacts || []));
+    const negativeImpacts = Array.from(new Set(report.negative_impacts || []));
+    const legacy: ImpactItemData[] = [
+      ...positiveImpacts.map((text) => ({
+        text,
+        polarity: 'positive' as const,
+        affected_group: text.split(':')[0]?.trim() || 'General Ward Residents',
+        impact_reasoning: text.split(':').slice(1).join(':').trim() || text,
+        critic_confirmed: null,
+        critic_note: null,
+        overlooked_subgroups: [],
+      })),
+      ...negativeImpacts.map((text) => ({
+        text,
+        polarity: 'negative' as const,
+        affected_group: text.split(':')[0]?.trim() || 'General Ward Residents',
+        impact_reasoning: text.split(':').slice(1).join(':').trim() || text,
+        critic_confirmed: null,
+        critic_note: null,
+        overlooked_subgroups: [],
+      })),
+    ];
+    return legacy;
+  })();
 
   // Deduplicate contradictions by notes/explanation
   const policyContradictions = (report.policy_contradictions || []).filter(
@@ -172,10 +223,10 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
       </div>
 
-      {/* 9 Fixed Sections Layout */}
+      {/* Sections Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Left Column: Summary, Stakeholders, Impacts */}
+        {/* Left Column: Summary, Stakeholders, Impacts, Risk Flags, Legal */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* Section 1: Policy Summary */}
@@ -209,51 +260,79 @@ export const ReportView: React.FC<ReportViewProps> = ({
             </div>
           </div>
 
-          {/* Section 3 & 4: Positive & Negative Impacts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="glass-panel rounded-2xl p-5 border border-slate-800">
-              <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center space-x-1.5">
-                <CheckCircle className="w-4 h-4" />
-                <span>3. Positive Impacts</span>
-              </h3>
-              <ul className="space-y-2">
-                {positiveImpacts.length > 0 ? (
-                  positiveImpacts.map((item, idx) => (
-                    <li key={idx} className="text-xs text-slate-300 bg-emerald-950/20 p-2.5 rounded-lg border border-emerald-900/40">
-                      {item}
-                    </li>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-500 italic">No positive impacts verified.</p>
-                )}
-              </ul>
-            </div>
+          {/* Section 3: Unified Policy Impact Analysis */}
+          <div className="glass-panel rounded-2xl p-6 border border-slate-800">
+            <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
+              <Scale className="w-4 h-4" />
+              <span>3. Policy Impact Analysis</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mb-4">
+              Each impact is listed with the agent&apos;s polarity assessment. Click &ldquo;View Agent Perspectives&rdquo; to see detailed reasoning from both the Impact Analysis Agent and Critic Agent.
+            </p>
+            <div className="space-y-3">
+              {unifiedImpacts.length > 0 ? (
+                unifiedImpacts.map((impact, idx) => {
+                  const isPositive = impact.polarity === 'positive';
+                  const isNegative = impact.polarity === 'negative';
+                  const isMixed = impact.polarity === 'neutral_mixed';
 
-            <div className="glass-panel rounded-2xl p-5 border border-slate-800">
-              <h3 className="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center space-x-1.5">
-                <AlertOctagon className="w-4 h-4" />
-                <span>4. Negative Impacts</span>
-              </h3>
-              <ul className="space-y-2">
-                {negativeImpacts.length > 0 ? (
-                  negativeImpacts.map((item, idx) => (
-                    <li key={idx} className="text-xs text-slate-300 bg-rose-950/20 p-2.5 rounded-lg border border-rose-900/40">
-                      {item}
-                    </li>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-500 italic">No direct negative impacts verified.</p>
-                )}
-              </ul>
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-3.5 rounded-xl border-l-4 transition-all ${
+                        isPositive
+                          ? 'border-l-emerald-500 bg-emerald-950/15 border border-r-emerald-900/30 border-t-emerald-900/30 border-b-emerald-900/30'
+                          : isNegative
+                          ? 'border-l-rose-500 bg-rose-950/15 border border-r-rose-900/30 border-t-rose-900/30 border-b-rose-900/30'
+                          : 'border-l-amber-500 bg-amber-950/15 border border-r-amber-900/30 border-t-amber-900/30 border-b-amber-900/30'
+                      }`}
+                    >
+                      <p className="text-xs text-slate-200 leading-relaxed mb-2.5">{impact.text}</p>
+
+                      <div className="flex items-center justify-between">
+                        {/* Agent polarity footnote */}
+                        <span
+                          className={`text-[10px] font-semibold flex items-center space-x-1 ${
+                            isPositive
+                              ? 'text-emerald-500'
+                              : isNegative
+                              ? 'text-rose-500'
+                              : 'text-amber-500'
+                          }`}
+                        >
+                          <span>
+                            {isPositive ? '⊕' : isNegative ? '⊖' : '◎'} Agent assessed:{' '}
+                            {isPositive ? 'Positive Impact' : isNegative ? 'Negative Impact' : 'Mixed Impact'}
+                          </span>
+                        </span>
+
+                        {/* View Agent Perspectives link */}
+                        <button
+                          onClick={() => {
+                            setActiveImpact(impact);
+                            setIsImpactDetailOpen(true);
+                          }}
+                          className="text-sky-400 hover:text-sky-300 flex items-center space-x-1 text-[11px] font-medium transition-colors"
+                        >
+                          <span>View Agent Perspectives</span>
+                          <Eye className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-slate-500 italic">No impacts verified.</p>
+              )}
             </div>
           </div>
 
-          {/* Section 5: Risk Flags */}
+          {/* Section 4: Risk Flags (was 5) */}
           {riskFlags.length > 0 && (
             <div className="glass-panel rounded-2xl p-6 border border-amber-900/40 bg-amber-950/10">
               <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4" />
-                <span>5. Adversarial Risk Flags & Overlooked Subgroups</span>
+                <span>4. Adversarial Risk Flags &amp; Overlooked Subgroups</span>
               </h3>
               <ul className="space-y-2">
                 {riskFlags.map((flag, idx) => (
@@ -265,11 +344,11 @@ export const ReportView: React.FC<ReportViewProps> = ({
             </div>
           )}
 
-          {/* Section 6: Legal Grounding */}
+          {/* Section 5: Legal Grounding (was 6) */}
           <div className="glass-panel rounded-2xl p-6 border border-slate-800">
             <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
               <Scale className="w-4 h-4" />
-              <span>6. Statutory Legal Grounding (Karnataka Law)</span>
+              <span>5. Statutory Legal Grounding (Karnataka Law)</span>
             </h3>
             <div className="space-y-3">
               {legalGrounding.map((item, idx) => (
@@ -298,11 +377,11 @@ export const ReportView: React.FC<ReportViewProps> = ({
         {/* Right Column: Claim Confidence & Policy Contradictions */}
         <div className="space-y-6">
 
-          {/* Section 7: Claim Confidence & Source Provenance */}
+          {/* Section 6: Claim Confidence & Source Provenance (was 7) */}
           <div className="glass-panel rounded-2xl p-6 border border-slate-800">
             <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
               <ShieldCheck className="w-4 h-4" />
-              <span>7. Claim Confidence & Source Offsets</span>
+              <span>6. Claim Confidence &amp; Source Offsets</span>
             </h3>
             <div className="space-y-3">
               {report.claim_confidence.map((claim, idx) => {
@@ -376,11 +455,11 @@ export const ReportView: React.FC<ReportViewProps> = ({
             )}
           </div>
 
-          {/* Section 8: Policy Contradictions */}
+          {/* Section 7: Policy Contradictions (was 8) */}
           <div className="glass-panel rounded-2xl p-6 border border-slate-800">
             <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-4 flex items-center space-x-2">
               <AlertTriangle className="w-4 h-4" />
-              <span>8. Policy Contradictions (Memory)</span>
+              <span>7. Policy Contradictions (Memory)</span>
             </h3>
             {policyContradictions.length > 0 ? (
               policyContradictions.map((c, idx) => (
@@ -398,6 +477,21 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </div>
 
       </div>
+
+      {/* Impact Detail Modal */}
+      <ImpactDetailModal
+        isOpen={isImpactDetailOpen}
+        onClose={() => setIsImpactDetailOpen(false)}
+        impact={activeImpact}
+      />
+
+      {/* Grievance Selector Modal */}
+      <GrievanceSelector
+        isOpen={isGrievanceSelectorOpen}
+        onClose={() => setIsGrievanceSelectorOpen(false)}
+        impacts={unifiedImpacts}
+        onSubmit={handleGrievanceSubmit}
+      />
     </div>
   );
 };
