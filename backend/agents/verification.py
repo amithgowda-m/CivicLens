@@ -1,8 +1,10 @@
 import os
+import json
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from backend.schemas import CivicLensState, VerifiedClaim, VerificationStatus, Clause
+from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.verification")
 
@@ -28,8 +30,15 @@ class NLIEvaluator:
     def score_premise_hypothesis(cls, premise: str, hypothesis: str) -> float:
         model = cls.get_model()
         if model == "MOCK" or model is None:
-            # Fallback heuristic: high score if hypothesis words exist in premise
-            return 0.88 if len(hypothesis) > 10 and any(w in premise.lower() for w in hypothesis.lower().split()[:3]) else 0.50
+            # Deterministic heuristic based on lexical containment
+            p_low = premise.lower()
+            h_low = hypothesis.lower()
+            if h_low in p_low:
+                return 0.95
+            words = [w for w in h_low.split() if len(w) > 3]
+            overlap = sum(1 for w in words if w in p_low) / max(len(words), 1)
+            return round(overlap, 4)
+
         try:
             scores = model.predict([(premise, hypothesis)])
             # Handle both 2D and 1D numpy array shapes
@@ -47,34 +56,107 @@ class NLIEvaluator:
             logger.error(f"NLI evaluation error: {err}")
             return 0.85
 
+async def evaluate_llm_judge(premise: str, claim_text: str) -> Dict[str, Any]:
+    """
+    Independent LLM-judge call evaluating factual entailment:
+    'does this claim follow strictly from the quoted source text?'
+    """
+    if os.environ.get("CIVICLENS_MOCK_NLI") != "1":
+        system_prompt = (
+            "You are an impartial municipal audit judge. Evaluate whether the extracted civic claim "
+            "follows strictly and verbatim from the provided source text."
+        )
+        prompt = (
+            f"Source Document Excerpt:\n\"\"\"\n{premise}\n\"\"\"\n\n"
+            f"Extracted Claim:\n\"\"\"\n{claim_text}\n\"\"\"\n\n"
+            "Question: Does this claim follow strictly from the quoted source text?\n"
+            "Respond strictly with a JSON object:\n"
+            "{\n"
+            "  \"verdict\": \"yes\" | \"no\" | \"partial\",\n"
+            "  \"score\": float between 0.0 and 1.0,\n"
+            "  \"reasoning\": \"string explaining alignment or discrepancies\"\n"
+            "}"
+        )
+
+        try:
+            resp = await llm_client.generate_text(prompt, system_prompt=system_prompt, json_mode=True)
+            if resp and resp.strip():
+                parsed = json.loads(resp)
+                verdict = parsed.get("verdict", "partial").lower()
+                if verdict not in ("yes", "no", "partial"):
+                    verdict = "partial"
+                score = float(parsed.get("score", 0.70))
+                reasoning = str(parsed.get("reasoning", "LLM judge evaluation complete."))
+                return {"verdict": verdict, "score": score, "reasoning": reasoning}
+        except Exception as e:
+            logger.info(f"LLM-judge call skipped or timed out ({e}); utilizing strict containment heuristic.")
+
+    # Deterministic fallback judge
+    if claim_text.strip().lower() in premise.lower():
+        return {
+            "verdict": "yes",
+            "score": 0.98,
+            "reasoning": "Claim text appears verbatim in source page text."
+        }
+    words = [w for w in claim_text.lower().split() if len(w) > 3]
+    overlap = sum(1 for w in words if w in premise.lower()) / max(len(words), 1)
+    if overlap > 0.80:
+        return {
+            "verdict": "yes",
+            "score": 0.88,
+            "reasoning": f"High lexical alignment ({int(overlap*100)}%) with source text."
+        }
+    elif overlap > 0.40:
+        return {
+            "verdict": "partial",
+            "score": 0.55,
+            "reasoning": f"Partial alignment ({int(overlap*100)}%); requires human review."
+        }
+    else:
+        return {
+            "verdict": "no",
+            "score": 0.20,
+            "reasoning": "Low lexical support in source document excerpt."
+        }
+
 async def verification_node(state: CivicLensState) -> Dict[str, Any]:
     """
     Verification Agent: Evaluates each claim through TWO independent gates:
-    1. Local NLI Cross-Encoder score
+    1. Local NLI Cross-Encoder score (sentence-transformers)
     2. LLM-Judge verdict ('yes'/'no'/'partial' + reasoning)
     
-    Admission Logic:
+    Dual Agreement Gate:
     - nli >= 0.75 AND judge == 'yes' -> ADMITTED
     - nli < 0.40 AND judge == 'no' -> REJECTED_PRUNED
-    - Otherwise -> PENDING_AUDIT
+    - Disagreement or mid-range scores -> PENDING_AUDIT
     """
-    logger.info("Executing Verification Ensemble Agent...")
+    logger.info("Executing Verification Ensemble Agent on extracted clauses...")
     classified_clauses = state.get("classified_clauses", [])
     pages = state.get("pages_text", [])
-    premise_doc = "\n".join(pages) if pages else ""
     
     verified_claims: List[Dict[str, Any]] = []
     has_audit_pending = False
 
     for c_data in classified_clauses:
         clause = Clause.model_validate(c_data)
-        nli_score = await asyncio.to_thread(NLIEvaluator.score_premise_hypothesis, premise_doc, clause.text)
         
-        # Stub / initial LLM-judge evaluation
-        llm_score = 0.90 if nli_score >= 0.75 else 0.60
-        llm_verdict = "yes" if llm_score >= 0.75 else ("partial" if llm_score >= 0.50 else "no")
-        llm_reasoning = "Verbatim extraction matches source text directly."
+        # Use specific page text as premise
+        page_idx = clause.page - 1
+        if 0 <= page_idx < len(pages):
+            premise = pages[page_idx]
+        else:
+            premise = "\n".join(pages)
 
+        # Gate 1: Local NLI Cross-Encoder
+        nli_score = await asyncio.to_thread(NLIEvaluator.score_premise_hypothesis, premise, clause.text)
+
+        # Gate 2: LLM-Judge evaluation
+        judge_res = await evaluate_llm_judge(premise, clause.text)
+        llm_verdict = judge_res["verdict"]
+        llm_score = judge_res["score"]
+        llm_reasoning = judge_res["reasoning"]
+
+        # Dual Agreement Gate Logic
         if nli_score >= 0.75 and llm_verdict == "yes":
             status = VerificationStatus.ADMITTED
         elif nli_score < 0.40 and llm_verdict == "no":
@@ -92,6 +174,12 @@ async def verification_node(state: CivicLensState) -> Dict[str, Any]:
             status=status
         )
         verified_claims.append(claim.model_dump())
+
+    logger.info(
+        f"Verification complete: {sum(1 for c in verified_claims if c['status'] == 'ADMITTED')} ADMITTED, "
+        f"{sum(1 for c in verified_claims if c['status'] == 'PENDING_AUDIT')} PENDING_AUDIT, "
+        f"{sum(1 for c in verified_claims if c['status'] == 'REJECTED_PRUNED')} REJECTED_PRUNED."
+    )
 
     return {
         "verified_claims": verified_claims,

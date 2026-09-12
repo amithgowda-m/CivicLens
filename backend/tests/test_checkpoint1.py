@@ -176,7 +176,21 @@ async def test_hitl_interrupt_and_resume():
         "document_id": "test_doc_hitl",
         "filename": "hitl_notice.pdf",
         "pages_text": [
-            "Controversial amendment: Building setback reduced to 0.5m."
+            "Notice regarding Ward 150 building setback guidelines and parking standards."
+        ],
+        "raw_clauses": [
+            {
+                "id": "cl_ambiguous",
+                "text": "Proposed amendment: Building setback guidelines may be conditionally revised.",
+                "page": 1,
+                "char_start": 0,
+                "char_end": 70,
+                "clause_type": "zoning_regulation",
+                "ward": "150",
+                "objection_deadline": "30 days",
+                "cited_legal_basis": "KTCP Act",
+                "typology": "land_use"
+            }
         ]
     }
     config = {"configurable": {"thread_id": "test_thread_hitl"}}

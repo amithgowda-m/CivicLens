@@ -3,7 +3,7 @@ import uuid
 import json
 import logging
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Query, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -56,13 +56,15 @@ async def list_sample_docs():
     return {"samples": samples}
 
 @app.post("/api/upload")
+@app.post("/api/documents/upload")
 async def upload_document(
     file: Optional[UploadFile] = File(None),
-    sample_name: Optional[str] = Query(None)
+    sample_name: Optional[str] = Form(None),
+    analyze: bool = Query(False)
 ):
     """
-    Accepts either an uploaded PDF file or a selection from sample_docs.
-    Returns a unique document_id to track the live WebSocket trace.
+    Ingests municipal PDF document via multipart upload or local sample path.
+    If analyze=True, executes the pipeline immediately and returns structured extraction & verification results.
     """
     doc_id = str(uuid.uuid4())[:8]
 
@@ -87,10 +89,54 @@ async def upload_document(
         "raw_bytes": content
     }
 
-    return {
+    resp = {
         "document_id": doc_id,
         "filename": filename,
         "trace_ws_url": f"/ws/trace/{doc_id}"
+    }
+
+    if analyze:
+        initial_state = {
+            "document_id": doc_id,
+            "filename": filename,
+            "raw_bytes": content
+        }
+        config = {"configurable": {"thread_id": doc_id}}
+        final_state = await civiclens_graph.ainvoke(initial_state, config=config)
+        resp["pages_count"] = len(final_state.get("pages_text", []))
+        resp["raw_clauses"] = final_state.get("raw_clauses", [])
+        resp["classified_clauses"] = final_state.get("classified_clauses", [])
+        resp["verified_claims"] = final_state.get("verified_claims", [])
+        resp["audit_pending"] = final_state.get("audit_pending", False)
+        resp["report"] = final_state.get("report")
+
+    return resp
+
+@app.post("/api/documents/{document_id}/analyze")
+async def analyze_document_endpoint(document_id: str):
+    """
+    Executes the CivicLens pipeline on an uploaded document and returns complete extraction & verification state.
+    """
+    doc_data = DOC_STORE.get(document_id)
+    if not doc_data:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    initial_state = {
+        "document_id": document_id,
+        "filename": doc_data["filename"],
+        "raw_bytes": doc_data["raw_bytes"]
+    }
+    config = {"configurable": {"thread_id": document_id}}
+    final_state = await civiclens_graph.ainvoke(initial_state, config=config)
+    return {
+        "document_id": document_id,
+        "filename": doc_data["filename"],
+        "pages_count": len(final_state.get("pages_text", [])),
+        "raw_clauses": final_state.get("raw_clauses", []),
+        "classified_clauses": final_state.get("classified_clauses", []),
+        "verified_claims": final_state.get("verified_claims", []),
+        "audit_pending": final_state.get("audit_pending", False),
+        "report": final_state.get("report")
     }
 
 @app.websocket("/ws/trace/{document_id}")
