@@ -3,7 +3,8 @@ import uuid
 import json
 import logging
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Query, Form
+from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Query, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -12,6 +13,7 @@ from backend.schemas import ReportData, ActionArtifact
 from backend.graph import civiclens_graph
 from backend.agents.action_agent import generate_action_artifact
 from backend.agents.eval_harness import run_evaluation
+from backend.ui_template import get_ui_html
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -44,8 +46,20 @@ class ActionRequest(BaseModel):
     report: ReportData
 
 @app.get("/")
-async def root():
-    return {"name": "CivicLens API", "status": "online", "llm_provider": settings.LLM_PROVIDER}
+async def root(request: Request):
+    """
+    Serves the interactive CivicLens browser analysis dashboard for browsers,
+    or JSON status if requested via API client.
+    """
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return HTMLResponse(content=get_ui_html())
+    return JSONResponse({"name": "CivicLens API", "status": "online", "llm_provider": settings.LLM_PROVIDER})
+
+@app.get("/ui", response_class=HTMLResponse)
+async def ui_dashboard():
+    """Interactive visual dashboard for uploading and verifying municipal documents."""
+    return HTMLResponse(content=get_ui_html())
 
 @app.get("/api/samples")
 async def list_sample_docs():
