@@ -63,6 +63,23 @@ export const ReportView: React.FC<ReportViewProps> = ({
 
   const isKannadaAvailable = Boolean(report.kannada_translation?.policy_summary);
 
+  // Deduplicate array data to guarantee clean, non-repetitive UI presentation
+  const stakeholders = Array.from(new Set(report.stakeholders_impacted || []));
+  const positiveImpacts = Array.from(new Set(report.positive_impacts || []));
+  const negativeImpacts = Array.from(new Set(report.negative_impacts || []));
+  const riskFlags = Array.from(new Set(report.risk_flags || []));
+
+  // Deduplicate contradictions by notes/explanation
+  const policyContradictions = (report.policy_contradictions || []).filter(
+    (c, idx, arr) => arr.findIndex((x) => (x.notes || x.explanation) === (c.notes || c.explanation)) === idx
+  );
+
+  // Deduplicate legal grounding by citation
+  const legalGrounding = (report.legal_grounding || []).filter(
+    (lg, idx, arr) => arr.findIndex((x) => x.citation === lg.citation) === idx
+  );
+
+
   const getVerdictBadge = (verdict: string) => {
     switch (verdict.toLowerCase()) {
       case 'positive':
@@ -181,7 +198,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <span>2. Stakeholders Impacted</span>
             </h3>
             <div className="flex flex-wrap gap-2">
-              {report.stakeholders_impacted.map((stakeholder, idx) => (
+              {stakeholders.map((stakeholder, idx) => (
                 <span
                   key={idx}
                   className="px-3 py-1.5 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 text-xs font-medium"
@@ -200,8 +217,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 <span>3. Positive Impacts</span>
               </h3>
               <ul className="space-y-2">
-                {report.positive_impacts.length > 0 ? (
-                  report.positive_impacts.map((item, idx) => (
+                {positiveImpacts.length > 0 ? (
+                  positiveImpacts.map((item, idx) => (
                     <li key={idx} className="text-xs text-slate-300 bg-emerald-950/20 p-2.5 rounded-lg border border-emerald-900/40">
                       {item}
                     </li>
@@ -218,8 +235,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 <span>4. Negative Impacts</span>
               </h3>
               <ul className="space-y-2">
-                {report.negative_impacts.length > 0 ? (
-                  report.negative_impacts.map((item, idx) => (
+                {negativeImpacts.length > 0 ? (
+                  negativeImpacts.map((item, idx) => (
                     <li key={idx} className="text-xs text-slate-300 bg-rose-950/20 p-2.5 rounded-lg border border-rose-900/40">
                       {item}
                     </li>
@@ -232,14 +249,14 @@ export const ReportView: React.FC<ReportViewProps> = ({
           </div>
 
           {/* Section 5: Risk Flags */}
-          {report.risk_flags.length > 0 && (
+          {riskFlags.length > 0 && (
             <div className="glass-panel rounded-2xl p-6 border border-amber-900/40 bg-amber-950/10">
               <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4" />
                 <span>5. Adversarial Risk Flags & Overlooked Subgroups</span>
               </h3>
               <ul className="space-y-2">
-                {report.risk_flags.map((flag, idx) => (
+                {riskFlags.map((flag, idx) => (
                   <li key={idx} className="text-xs text-amber-200 bg-amber-950/40 p-2.5 rounded-lg border border-amber-900/50">
                     {flag}
                   </li>
@@ -255,7 +272,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <span>6. Statutory Legal Grounding (Karnataka Law)</span>
             </h3>
             <div className="space-y-3">
-              {report.legal_grounding.map((item, idx) => (
+              {legalGrounding.map((item, idx) => (
                 <div key={idx} className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-sky-300">{item.citation || 'Karnataka Statute'}</span>
@@ -365,8 +382,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <AlertTriangle className="w-4 h-4" />
               <span>8. Policy Contradictions (Memory)</span>
             </h3>
-            {report.policy_contradictions.length > 0 ? (
-              report.policy_contradictions.map((c, idx) => (
+            {policyContradictions.length > 0 ? (
+              policyContradictions.map((c, idx) => (
                 <div key={idx} className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-900/50 text-xs space-y-1.5">
                   <div className="font-semibold text-amber-300">Policy Reversal Flagged:</div>
                   <p className="text-slate-300">{c.notes || c.explanation || 'Direct policy contradiction against earlier municipal notice.'}</p>
@@ -376,6 +393,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <p className="text-xs text-slate-500 italic">No policy reversals detected against historical ward records.</p>
             )}
           </div>
+
 
         </div>
 

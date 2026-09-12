@@ -31,18 +31,39 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     else:
         verdict = "mixed"
 
-    stakeholders = list({t.get("affected_group") for t in critic_tags if t.get("affected_group")})
-    positives = [f"{t.get('affected_group')}: {t.get('reasoning')}" for t in critic_tags if t.get("polarity") == "positive"]
-    negatives = [f"{t.get('affected_group')}: {t.get('reasoning')}" for t in critic_tags if t.get("polarity") == "negative"]
+    stakeholders = list(dict.fromkeys([t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]))
+    positives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "positive"]))
+    negatives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "negative"]))
 
-    risk_flags = []
+    raw_risk_flags = []
     for c in contradictions:
-        risk_flags.append(f"Historical policy contradiction detected: {c.get('notes')}")
+        raw_risk_flags.append(f"Historical policy contradiction detected: {c.get('notes')}".strip())
     for t in critic_tags:
         for sub in t.get("overlooked_subgroups", []):
-            risk_flags.append(f"Unrepresented subgroup exposed: {sub}")
+            if sub and sub.strip():
+                raw_risk_flags.append(f"Unrepresented subgroup exposed: {sub.strip()}")
 
-    legal_grounding = [c.get("legal_grounding") for c in admitted_claims if c.get("legal_grounding")]
+    risk_flags = list(dict.fromkeys(raw_risk_flags))
+
+    # Deduplicate legal grounding entries by citation
+    seen_citations = set()
+    legal_grounding = []
+    for c in admitted_claims:
+        lg = c.get("legal_grounding")
+        if lg:
+            cit = lg.get("citation", "")
+            if cit not in seen_citations:
+                seen_citations.add(cit)
+                legal_grounding.append(lg)
+
+    # Deduplicate contradictions by notes/prior_clause
+    seen_contra_notes = set()
+    deduped_contradictions = []
+    for c in contradictions:
+        c_key = (c.get("notes"), c.get("prior_doc_id"), c.get("prior_clause_text", "")[:60])
+        if c_key not in seen_contra_notes:
+            seen_contra_notes.add(c_key)
+            deduped_contradictions.append(c)
 
     claim_confidence = [
         {
@@ -57,6 +78,7 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         }
         for c in admitted_claims
     ]
+
 
     # Synthesize policy summary using LLM if available
     claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
@@ -85,8 +107,9 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         risk_flags=risk_flags,
         legal_grounding=legal_grounding,
         claim_confidence=claim_confidence,
-        policy_contradictions=contradictions,
+        policy_contradictions=deduped_contradictions,
         overall_verdict=verdict,
+
         dropped_claims_count=dropped_count,
         kannada_translation=kannada_translation
     )

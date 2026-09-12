@@ -16,20 +16,27 @@ async def memory_node(state: CivicLensState) -> Dict[str, Any]:
     classified = state.get("classified_clauses", [])
     contradictions: List[Dict[str, Any]] = []
 
-    # 1. Search prior clauses for ward
+    seen_contradictions = set()
     for clause in classified:
         ward = clause.get("ward")
         similar = vector_store.search_similar_clauses(clause.get("text", ""), ward=ward, limit=3)
         for s in similar:
-            if s.get("metadata", {}).get("doc_id") != doc_id and s.get("similarity", 0) > 0.70:
+            prior_id = s.get("metadata", {}).get("doc_id")
+            prior_text = s.get("text", "").strip()
+            if prior_id != doc_id and s.get("similarity", 0) > 0.70:
+                dedup_key = (prior_id, ward, prior_text[:60])
+                if dedup_key in seen_contradictions:
+                    continue
+                seen_contradictions.add(dedup_key)
+
                 rec = ContradictionRecord(
                     claim_id=clause.get("id"),
                     ward=ward,
-                    prior_doc_id=s.get("metadata", {}).get("doc_id"),
-                    prior_clause_text=s.get("text"),
+                    prior_doc_id=prior_id,
+                    prior_clause_text=prior_text,
                     similarity_score=s.get("similarity"),
                     contradiction_flag=True,
-                    notes=f"Found related historical clause in document {s.get('metadata', {}).get('doc_id')}"
+                    notes=f"Found related historical clause in document {prior_id}"
                 )
                 contradictions.append(rec.model_dump())
 
@@ -39,3 +46,4 @@ async def memory_node(state: CivicLensState) -> Dict[str, Any]:
     return {
         "contradictions": contradictions
     }
+
