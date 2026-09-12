@@ -19,10 +19,14 @@ Open **two separate terminal windows/tabs** in the project root directory (`c:\U
 ### 1️⃣ Terminal 1 — Backend (FastAPI Server)
 
 ```powershell
-python -m uvicorn backend.main:app --reload --port 8000
+# Use the project virtualenv — NOT the system Python
+backend\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
 - **API URL**: `http://127.0.0.1:8000`
 - **Interactive Dashboard UI**: `http://127.0.0.1:8000/ui`
+
+> ⚠️ **Do NOT use `python -m uvicorn ...`** — that picks up system Python 3.10 which lacks `langgraph` and other deps.
+> Always prefix with `backend\.venv\Scripts\python.exe`.
 
 ---
 
