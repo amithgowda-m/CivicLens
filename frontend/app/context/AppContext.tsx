@@ -311,11 +311,18 @@ export function AppContextProvider({ children }: { children: React.ReactNode }) 
     async (selectedGrievances?: string[]) => {
       if (!report) return;
       try {
+        const payloadReport = {
+          ...report,
+          negative_impacts:
+            selectedGrievances && selectedGrievances.length > 0
+              ? selectedGrievances
+              : report.negative_impacts,
+        };
         const res = await fetch('/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            report,
+            report: payloadReport,
             ...(selectedGrievances && selectedGrievances.length > 0
               ? { selected_grievances: selectedGrievances }
               : {}),

@@ -17,30 +17,22 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
   impacts,
   onSubmit,
 }) => {
-  // Body scroll lock
+  // Filter to all non-positive impacts (both negative/red and mixed/yellow)
+  const grievances = impacts.filter((i) => i.polarity !== 'positive');
+
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(grievances.map((_, idx) => idx)));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Body scroll lock & initialize selection on modal open
   useEffect(() => {
     if (isOpen) {
       document.body.classList.add('modal-open');
+      setSelected(new Set(grievances.map((_, idx) => idx)));
     } else {
       document.body.classList.remove('modal-open');
     }
     return () => { document.body.classList.remove('modal-open'); };
   }, [isOpen]);
-
-  // Filter to negative and mixed impacts as selectable grievances
-  const grievances = impacts.filter(
-    (i) => i.polarity === 'negative' || i.polarity === 'neutral_mixed'
-  );
-
-  const [selected, setSelected] = useState<Set<number>>(
-    new Set(grievances.map((_, idx) => idx))
-  );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Sync selected on impacts change
-  useEffect(() => {
-    setSelected(new Set(grievances.map((_, idx) => idx)));
-  }, [impacts]);
 
   if (!isOpen) return null;
 
@@ -96,7 +88,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
                 Select Grievances for Objection Petition
               </div>
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Choose specific adverse impacts to cite in the formal objection
+                Choose specific adverse (red) or mixed (yellow) impacts to cite in the formal objection
               </div>
             </div>
           </div>
@@ -115,7 +107,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
           {/* Select All Toggle */}
           <div className="flex items-center justify-between pb-1">
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {selected.size} of {grievances.length} grievance{grievances.length !== 1 ? 's' : ''} selected
+              {selected.size} of {grievances.length} impact{grievances.length !== 1 ? 's' : ''} selected
             </span>
             <button
               onClick={toggleAll}
@@ -130,7 +122,7 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
             <div className="text-center py-8">
               <AlertOctagon className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--text-faint)' }} />
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                No negative or mixed impacts identified to file as grievances.
+                No adverse or mixed impacts identified to file as grievances.
               </p>
             </div>
           ) : (
