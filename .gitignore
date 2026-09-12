@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+env/
+venv/
+ENV/
+
+# Data and vector databases
+backend/data/chroma_db/
+*.log
+
+# Environment variables
+.env
+!.env.example
+
+# Next.js / Frontend
+node_modules/
+.next/
+out/
+build/
+dist/
+.DS_Store
+Thumbs.db
