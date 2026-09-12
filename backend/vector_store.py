@@ -1,8 +1,11 @@
 import os
+import re
+import hashlib
 import logging
 from typing import List, Dict, Any, Optional
 from backend.config import settings
 from backend.jurisdiction import normalize_jurisdiction
+
 
 logger = logging.getLogger("civiclens.vector_store")
 
@@ -25,30 +28,43 @@ class EmbeddingService:
         return cls._model
 
     @classmethod
+    def _mock_vector(cls, text: str) -> List[float]:
+        import hashlib
+        h = hashlib.md5(text.lower().encode("utf-8")).hexdigest()
+        vec = [(int(h[i % 32], 16) / 15.0) for i in range(384)]
+        tokens = set(re.findall(r"\b[a-z]{3,}\b", text.lower()))
+        for idx, kw in enumerate(["setback", "tax", "commercial", "residential", "water", "lake", "drainage", "far", "floor", "building"]):
+            if kw in tokens:
+                vec[idx] += 10.0
+        norm = sum(x * x for x in vec) ** 0.5
+        return [x / norm for x in vec] if norm > 0 else [0.01] * 384
+
+    @classmethod
     def embed_texts(cls, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
         if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
-            return [[0.01] * 384 for _ in texts]
+            return [cls._mock_vector(t) for t in texts]
         try:
             model = cls.get_model()
             embeddings = model.encode(texts, convert_to_numpy=True)
             return embeddings.tolist()
         except Exception as e:
             logger.warning(f"Embedding failed ({e}), using mock embeddings.")
-            return [[0.01] * 384 for _ in texts]
+            return [cls._mock_vector(t) for t in texts]
 
     @classmethod
     def embed_query(cls, query: str) -> List[float]:
         if os.environ.get("CIVICLENS_MOCK_NLI") == "1":
-            return [0.01] * 384
+            return cls._mock_vector(query)
         try:
             model = cls.get_model()
             embedding = model.encode(query, convert_to_numpy=True)
             return embedding.tolist()
         except Exception as e:
             logger.warning(f"Embedding query failed ({e}), using mock vector.")
-            return [0.01] * 384
+            return cls._mock_vector(query)
+
 
 
 class VectorStoreInterface:
@@ -311,70 +327,17 @@ class ChromaVectorStore(VectorStoreInterface):
         )
         logger.info(f"Seeded {len(precedents)} audit precedent resolutions.")
 
-    def seed_legal_corpus(self, corpus_dir: str = "backend/data/legal_corpus"):
-        """Seed legal corpus into vector store if empty or refresh partitions."""
-        if not os.path.exists(corpus_dir):
-            return
-
-        sections = []
-        for filename in os.listdir(corpus_dir):
-            if filename.endswith(".txt"):
-                filepath = os.path.join(corpus_dir, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Determine jurisdiction for this file
-                if "national" in filename.lower():
-                    sec_jurisdiction = "national"
-                else:
-                    sec_jurisdiction = normalize_jurisdiction(content[:1000])
-                    if sec_jurisdiction == "_default":
-                        sec_jurisdiction = "karnataka_bengaluru"
-
-                statute_name = "Municipal Law"
-                lines = content.split("\n")
-                current_section = None
-                current_title = ""
-                current_text = []
-
-                for line in lines:
-                    if line.startswith("[STATUTE]:"):
-                        statute_name = line.replace("[STATUTE]:", "").strip()
-                    elif line.startswith("[SECTION"):
-                        if current_section and current_text:
-                            sec_id = f"{filename[:4].lower()}_{current_section.replace(' ', '_').lower()}"
-                            sections.append({
-                                "id": sec_id,
-                                "statute": statute_name,
-                                "section": current_section,
-                                "title": current_title,
-                                "text": "\n".join(current_text).strip(),
-                                "jurisdiction": sec_jurisdiction
-                            })
-                        header = line.split("]:", 1)
-                        sec_part = header[0].replace("[SECTION", "").strip()
-                        title_part = header[1].strip() if len(header) > 1 else ""
-                        current_section = f"Section {sec_part}"
-                        current_title = title_part
-                        current_text = [line]
-                    else:
-                        if current_section:
-                            current_text.append(line)
-
-                if current_section and current_text:
-                    sec_id = f"{filename[:4].lower()}_{current_section.replace(' ', '_').lower()}"
-                    sections.append({
-                        "id": sec_id,
-                        "statute": statute_name,
-                        "section": current_section,
-                        "title": current_title,
-                        "text": "\n".join(current_text).strip(),
-                        "jurisdiction": sec_jurisdiction
-                    })
-
-        if sections:
-            self.upsert_legal_sections(sections)
-            logger.info(f"Seeded {len(sections)} legal statute sections into vector store.")
+    def seed_legal_corpus(self):
+        """Purges any legacy external statutory texts per pure-document grounding specification."""
+        try:
+            count = self.legal_col.count()
+            if count > 0:
+                all_ids = self.legal_col.get()["ids"]
+                if all_ids:
+                    self.legal_col.delete(ids=all_ids)
+                logger.info(f"Purged {count} legacy statutory corpus items from Chroma.")
+        except Exception as e:
+            logger.debug(f"Legal corpus purge note: {e}")
 
 
 def get_vector_store() -> VectorStoreInterface:

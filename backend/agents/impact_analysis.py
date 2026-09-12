@@ -79,42 +79,46 @@ async def impact_analysis_node(state: CivicLensState) -> Dict[str, Any]:
                 reasoning=b_imp.get("reasoning", "Municipal policy update affecting local ward governance.")
             )
         else:
-            c_text = clause.get("text", "").lower()
+            raw_text = clause.get("text", "").strip()
+            short_desc = (raw_text[:70] + "...") if len(raw_text) > 70 else raw_text
+            c_text = raw_text.lower()
+
             if clause.get("objection_deadline") or any(w in c_text for w in ("objection", "suggestion", "notice", "hearing", "representation", "safeguard")):
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="positive",
-                    affected_group="Ward residents and concerned citizen objectors",
-                    reasoning="Statutory objection submission window and public notice safeguard citizen participation rights against unilateral administrative change."
+                    affected_group="Ward residents and concerned citizens",
+                    reasoning=f"Document establishes procedural safeguards and consultation provisions for: {short_desc}"
                 )
             elif typology == "land_use":
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="neutral_mixed",
-                    affected_group="Commercial property developers and pedestrian commuters",
-                    reasoning="Increased setback improves pedestrian walkway width but reduces developable commercial floor area."
+                    affected_group="Property owners, developers, and neighborhood residents",
+                    reasoning=f"Spatial planning and zoning standard governing '{short_desc}' defines development boundaries and land use compliance."
                 )
             elif typology == "tax":
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="negative",
-                    affected_group="Small commercial business owners and shop tenants",
-                    reasoning="Immediate increase in operational overhead without guaranteed improvement in local municipal services."
+                    affected_group="Assessed property owners and commercial tenants",
+                    reasoning=f"Fiscal assessment or revenue regulation regarding '{short_desc}' alters municipal compliance costs."
                 )
             elif any(w in c_text for w in ("environment", "buffer", "green", "lake", "tree")):
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="positive",
-                    affected_group="Local ecology and ward residents",
-                    reasoning="Mandatory ecological buffer zones protect public water bodies and urban tree canopy."
+                    affected_group="Local community and environmental stakeholders",
+                    reasoning=f"Environmental preservation standards regarding '{short_desc}' protect civic commons."
                 )
             else:
                 tag = ImpactTag(
                     claim_id=cid,
                     polarity="positive",
-                    affected_group="General ward residents",
-                    reasoning="Enhanced civic administrative compliance and regulatory clarity."
+                    affected_group="General citizens and municipal administration",
+                    reasoning=f"Administrative regulatory provision established: {short_desc}"
                 )
+
 
         impact_tags.append(tag.model_dump())
 

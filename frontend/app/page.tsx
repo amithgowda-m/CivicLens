@@ -83,8 +83,9 @@ export default function Home() {
       { stage: 'Typology Classifier', details: 'Classified land use & tax categories.' },
       { stage: 'Memory & Contradiction Agent', details: 'Cross-checked historical ward notices.' },
       { stage: 'Verification Ensemble Gate', details: 'NLI Cross-Encoder + LLM Judge passed.' },
-      { stage: 'Legal Grounding Agent', details: 'Grounded against KTCP 1961 & GBGA 2024.' },
+      { stage: 'Legal Grounding Agent', details: 'Validated statutory authority & internal document legal basis.' },
       { stage: 'Impact Analysis Agent', details: 'Evaluated stakeholder polarities.' },
+
       { stage: 'Critic Agent (Adversarial)', details: 'Audited counter-perspectives & subgroups.' },
       { stage: 'Report Generation Agent', details: 'Synthesized 9 fixed report sections.' },
     ];
@@ -317,12 +318,14 @@ export default function Home() {
                   }}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
                 >
-                  <option value="">Select sample document...</option>
-                  <option value="bda_zoning_notice.pdf">BDA Zoning Notice (Ward 150)</option>
-                  <option value="bbmp_council_agenda.pdf">BBMP Council Agenda & Tax Revision</option>
-                  <option value="rti_response.pdf">RTI Online Response Notice</option>
+                  <option value="">Select sample civic document...</option>
+                  <option value="bda_zoning_notice.pdf">Commercial Setback Notice (Zoning Proposal)</option>
+                  <option value="bbmp_council_agenda.pdf">Municipal Council Agenda & Tax Revision</option>
+                  <option value="rti_response.pdf">RTI Disclosure & Public Information Response</option>
+                  <option value="Act36of2025KA.pdf">State Legislative & Planning Act (Enacted Law)</option>
                 </select>
               </div>
+
 
               <button
                 type="button"

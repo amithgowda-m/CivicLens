@@ -179,15 +179,22 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
 
     # Synthesize policy summary using LLM if available
     claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
+    doc_title = state.get("document_title") or "Municipal Civic Document"
     try:
-        summary_prompt = f"Synthesize a 2-3 sentence plain-language executive policy summary for citizens based ONLY on these verified clauses:\n{claims_text}"
+        summary_prompt = f"Synthesize a 2-3 sentence plain-language executive policy summary for citizens regarding {doc_title} based ONLY on these verified clauses:\n{claims_text}"
         policy_summary = await llm_client.generate_text(summary_prompt, system_prompt="You are a clear civic document summarizer for local citizens. Write in plain, objective language.")
     except Exception as e:
-        logger.warning(f"LLM Policy Summary generation failed ({e}), using fallback.")
-        policy_summary = (
-            "Municipal policy notification concerning statutory revisions, property tax regulations, or zoning frameworks. "
-            "The proposed policies establish regulatory guidelines and administrative compliance standards for local citizens."
-        )
+        logger.warning(f"LLM Policy Summary generation failed ({e}), summarizing strictly from verified clauses.")
+        top_clauses = [
+            c.get("clause", {}).get("text", "").strip()
+            for c in admitted_claims[:3]
+            if c.get("clause", {}).get("text")
+        ]
+        if top_clauses:
+            joined = "; ".join(top_clauses)
+            policy_summary = f"{doc_title}: Verified provisions specify that {joined}."
+        else:
+            policy_summary = f"{doc_title}: Administrative and regulatory provisions verified from document text."
 
     report = ReportData(
         policy_summary=policy_summary,
@@ -204,9 +211,14 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         jurisdiction=doc_jurisdiction,
         stated_objection_authority=doc_authority,
         authority_status=doc_authority_status,
-        omission_warnings=omission_warnings
+        omission_warnings=omission_warnings,
+        document_title=state.get("document_title"),
+        document_category=state.get("document_category", "general_civic_document"),
+        document_legal_status=state.get("document_legal_status", "public_record"),
+        action_type_recommended=state.get("action_type_recommended", "citizen_compliance_guide")
     )
 
     return {
         "report": report.model_dump()
     }
+

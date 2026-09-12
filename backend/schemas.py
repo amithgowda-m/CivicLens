@@ -105,9 +105,13 @@ class ReportData(BaseModel):
     stated_objection_authority: Optional[str] = None
     authority_status: Optional[str] = None
     omission_warnings: List[str] = Field(default_factory=list)
+    document_title: Optional[str] = None
+    document_category: Literal["enacted_regulation_master_plan", "draft_consultation_notice", "council_proceedings_minutes", "policy_directive", "general_civic_document"] = "general_civic_document"
+    document_legal_status: Literal["gazetted_enacted_law", "draft_proposal", "council_resolution", "administrative_guideline", "public_record"] = "public_record"
+    action_type_recommended: Literal["citizen_compliance_guide", "objection_petition", "accountability_brief", "policy_summary"] = "citizen_compliance_guide"
 
 class ActionArtifact(BaseModel):
-    action_type: Literal["objection_letter", "awareness_summary"]
+    action_type: Literal["objection_letter", "awareness_summary", "compliance_guide", "accountability_brief"]
     content: str
     target_deadline: Optional[str] = None
     recipient_authority: Optional[str] = None
@@ -133,6 +137,10 @@ class CivicLensState(TypedDict, total=False):
     proposal_merged: Optional[bool]
     raw_clauses: List[Dict[str, Any]]
     classified_clauses: List[Dict[str, Any]]
+    document_title: Optional[str]
+    document_category: Optional[str]
+    document_legal_status: Optional[str]
+    action_type_recommended: Optional[str]
     contradictions: List[Dict[str, Any]]
     verified_claims: List[Dict[str, Any]]
     audit_pending: bool

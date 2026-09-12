@@ -7,29 +7,80 @@ from backend.jurisdiction import resolve_addressee, load_registry
 logger = logging.getLogger("civiclens.agent.action")
 
 
+def _build_compliance_guide_prompt(
+    report: ReportData,
+    authority: str,
+    jurisdiction_name: str
+) -> str:
+    """Constructs prompt for LLM to draft a citizen compliance & rights guide for enacted regulations/master plans."""
+    doc_title = report.document_title or "Municipal Planning & Zonal Regulation"
+    admitted = [
+        c for c in report.claim_confidence
+        if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
+    ]
+    claim_items = []
+    for c in admitted[:8]:
+        text = c.get("text") or c.get("clause_text", "")
+        page = c.get("page", "?")
+        if text:
+            claim_items.append(f'- (Page {page}) "{text[:250]}"')
+    claims_block = "\n".join(claim_items) if claim_items else "- (Refer to document regulations)"
+
+    legal_refs = [
+        f"Section {g.matched_statute_section} of {g.statute_name}"
+        for g in report.legal_grounding if g.matched_statute_section and g.statute_name
+    ]
+    legal_refs_str = ", ".join(legal_refs) if legal_refs else "Applicable municipal planning framework"
+
+    prompt = f"""You are a senior civic legal advisor in {jurisdiction_name}.
+
+Draft a comprehensive "Citizen Compliance & Rights Guide" based on the following verified enacted municipal regulation.
+This is an officially enacted statutory document (currently in force), NOT a draft proposal inviting objections.
+
+=== DOCUMENT DETAILS ===
+Title: {doc_title}
+Legal Status: Enacted Law / Gazetted Master Plan
+Enforcing Authority: {authority}
+Statutory Basis: {legal_refs_str}
+
+=== VERIFIED OPERATIVE CLAUSES (from document) ===
+{claims_block}
+
+=== INSTRUCTIONS FOR GUIDE ===
+Draft a clear, practical, citizen-facing guide with the following sections:
+1. REGULATORY OVERVIEW: What this regulation governs and its legal binding nature.
+2. CITIZEN RIGHTS & COMPLIANCE RULES: Plain-language breakdown of key standards, definitions, and building/zoning rules based on the verified clauses above.
+3. PRE-EXISTING USES & SAFEGUARDS: Protections for existing lawful structures and non-conforming uses.
+4. PERMITTING & APPROVAL PROCESS: How citizens, architects, and plot owners apply for clearances with {authority}.
+5. APPEALS & GRIEVANCE REDRESSAL: Legal rights of appeal against arbitrary enforcement or denial of permissions.
+
+Tone: Authoritative, practical, and protective of citizen rights.
+Do NOT mention any objection submission deadline, as this regulation is already enacted and binding.
+Output ONLY the guide text, formatted with clear markdown headings."""
+
+    return prompt
+
+
 def _build_objection_prompt(
     report: ReportData,
     recipient: str,
     jurisdiction_name: str,
-    selected_grievances: Optional[List[str]] = None
+    selected_grievances: Optional[List[str]] = None,
+    deadline: Optional[str] = None
 ) -> str:
-    """Constructs a detailed prompt for LLM to draft a formal objection letter from real report data."""
-
+    """Constructs prompt for LLM to draft a formal objection letter for draft proposals."""
     grievance_list = selected_grievances if selected_grievances else report.negative_impacts
-    negative_points = "\n".join(f"- {p}" for p in grievance_list) or "- General concerns raised."
+    negative_points = "\n".join(f"- {p}" for p in grievance_list) or "- General administrative concerns."
     risk_points = "\n".join(f"- {r}" for r in report.risk_flags) or "- No explicit risk flags."
 
-    # Gather legal groundings (statute citations)
-    legal_refs = []
-    for g in report.legal_grounding:
-        if g.matched_statute_section:
-            legal_refs.append(f"Section {g.matched_statute_section} of {g.statute_name or 'applicable statute'}")
+    legal_refs = [
+        f"Section {g.matched_statute_section} of {g.statute_name}"
+        for g in report.legal_grounding if g.matched_statute_section and g.statute_name
+    ]
     legal_refs_str = ", ".join(legal_refs) if legal_refs else f"applicable {jurisdiction_name} municipal statutes"
 
-    # Gather affected stakeholders
     stakeholders = ", ".join(report.stakeholders_impacted) if report.stakeholders_impacted else "affected citizens"
 
-    # Gather high-confidence admitted claims for grounding the letter
     admitted_claims = [
         c for c in report.claim_confidence
         if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
@@ -39,159 +90,126 @@ def _build_objection_prompt(
         text = c.get("text") or c.get("clause_text", "")
         page = c.get("page", "?")
         if text:
-            claim_texts.append(f'- (Page {page}) "{text[:200]}..."' if len(text) > 200 else f'- (Page {page}) "{text}"')
-    claims_block = "\n".join(claim_texts) if claim_texts else "- (See attached document for source clauses)"
+            claim_texts.append(f'- (Page {page}) "{text[:200]}"')
+    claims_block = "\n".join(claim_texts) if claim_texts else "- (See source notice)"
 
-    # Extract deadline if available from any clause
-    deadline = "Within 30 days of public notice publication"
-    for c in report.claim_confidence:
-        d = c.get("objection_deadline")
-        if d:
-            deadline = d
-            break
-
-    # Ward/locality
-    ward_info = ""
-    for c in report.claim_confidence:
-        w = c.get("ward")
-        if w:
-            ward_info = f" (Ward: {w})"
-            break
+    deadline_str = f"Deadline: {deadline}" if deadline else "Submission period: Prescribed public consultation window"
 
     prompt = f"""You are a legal drafting assistant for civic advocacy in {jurisdiction_name}.
 
-Draft a formal objection letter to municipal authorities based on the following verified analysis of a municipal document.
-The letter must be professional, cite the exact legal statutes provided, reference the specific source document claims,
-and clearly state the citizen objections and remedies requested.
+Draft a formal objection letter to municipal authorities based on the following verified analysis of a draft municipal document.
+The letter must cite the exact legal statutes, reference specific source claims, and articulate remedies requested.
 
 === REPORT SUMMARY ===
+Document: {report.document_title or 'Draft Municipal Notice'}
 Overall Verdict: {report.overall_verdict.upper()}
 Policy Summary: {report.policy_summary}
 
 === AFFECTED STAKEHOLDERS ===
-{stakeholders}{ward_info}
+{stakeholders}
 
-=== NEGATIVE IMPACTS IDENTIFIED ===
+=== SPECIFIC OBJECTIONS / IMPACTS ===
 {negative_points}
 
 === RISK FLAGS ===
 {risk_points}
 
-=== VERIFIED SOURCE CLAIMS (verbatim from document) ===
+=== VERIFIED SOURCE CLAIMS ===
 {claims_block}
 
-=== LEGAL BASIS ===
-Citations: {legal_refs_str}
-Dropped/unverified claims count: {report.dropped_claims_count}
+=== LEGAL CITATIONS ===
+{legal_refs_str}
 
 === DRAFT INSTRUCTIONS ===
-- Address: {recipient}
-- Subject line: Specific to the policy identified
-- Format: Formal government letter format
-- Body: 4-5 paragraphs covering: (1) Reference to the notice, (2) Specific objections with legal citations, (3) Impact on affected groups, (4) Remedy/relief requested, (5) Request for public consultation
-- Deadline reference: {deadline}
-- Closing: Signed as "Aggrieved Citizens and Residents Welfare Association"
-- Do NOT use placeholder text like [Name] or [Date] — write it as a ready-to-use draft
+- Address To: {recipient}
+- Format: Formal representation / objection petition
+- Body: 4-5 paragraphs covering notice reference, specific legal and procedural objections, impact on affected groups, requested relief/modifications, and request for personal hearing.
+- {deadline_str}
+- Closing: Signed as "Aggrieved Citizens and Resident Representatives"
 
-Output ONLY the letter text, no preamble or explanation."""
+Output ONLY the petition text."""
 
     return prompt
 
 
 def _build_awareness_prompt(report: ReportData, jurisdiction_name: str) -> str:
-    """Constructs a prompt for LLM to draft a positive community awareness bulletin."""
-
+    """Constructs prompt for LLM to draft a positive community awareness bulletin."""
     positive_points = "\n".join(f"- {p}" for p in report.positive_impacts) or "- Positive municipal development."
     stakeholders = ", ".join(report.stakeholders_impacted) if report.stakeholders_impacted else "community members"
 
-    prompt = f"""You are a civic communications officer for a Resident Welfare Association in {jurisdiction_name}.
+    return f"""You are a civic communications officer in {jurisdiction_name}.
 
-Draft a clear, engaging community awareness bulletin based on the following verified analysis of a municipal policy.
-The bulletin should be easy for ordinary citizens to understand and encourage participation.
+Draft a clear, engaging community awareness bulletin based on the verified civic policy below.
 
-=== POLICY SUMMARY ===
-{report.policy_summary}
-
-=== POSITIVE IMPACTS ===
+Document: {report.document_title or 'Municipal Notification'}
+Summary: {report.policy_summary}
+Key Benefits:
 {positive_points}
+Affected Community: {stakeholders}
 
-=== AFFECTED COMMUNITY ===
-{stakeholders}
-
-=== INSTRUCTIONS ===
-- Format: Community bulletin / newsletter entry
-- Tone: Informative, positive, accessible (no legal jargon)
-- Include: What the policy does, who benefits, how residents can engage or support it
-- Length: 3-4 short paragraphs
-- End with a call to action for residents
-
-Output ONLY the bulletin text, no preamble or explanation."""
-
-    return prompt
+Format as an informative community newsletter entry (3-4 paragraphs) with a call to action.
+Output ONLY the bulletin text."""
 
 
 async def generate_action_artifact(report: ReportData, selected_grievances: Optional[List[str]] = None) -> ActionArtifact:
     """
-    Action Agent: Dynamically generates civic engagement artifacts using the LLM
-    and the actual verified claims, legal groundings, and impact data from the report.
-
-    Addressee resolution:
-    - If document text states an objection authority AND authority_status == ADMITTED: uses stated authority
-    - Else: falls back to resolve_addressee(jurisdiction, ward) from the external registry. Zero hardcoding!
+    Action Agent: Generates context-appropriate civic artifacts:
+    - For Enacted Regulations / Master Plans -> Citizen Compliance & Rights Guide
+    - For Draft Proposals / Objections -> Formal Objection Petition
+    - For Positive Notices -> Community Awareness Bulletin
     """
-    logger.info(f"Generating dynamic action artifact for verdict: {report.overall_verdict}")
-    is_objection = report.overall_verdict in ("negative", "mixed")
+    logger.info(f"Generating action artifact for doc category: {report.document_category}, verdict: {report.overall_verdict}")
 
-    # Determine cited clause IDs from the report
+    # Extract any explicit deadline from verified claims
+    extracted_deadline: Optional[str] = None
+    for c in report.claim_confidence:
+        d = c.get("objection_deadline")
+        if d and str(d).strip().lower() not in ("none", "null", ""):
+            extracted_deadline = str(d).strip()
+            break
+
+    # Resolve recipient authority
+    ward = next((c.get("ward") for c in report.claim_confidence if c.get("ward")), None)
+    registry = load_registry()
+    jurisdiction_slug = report.jurisdiction or "_default"
+    j_conf = registry.get(jurisdiction_slug, registry["_default"])
+    jurisdiction_name = j_conf.get("name", "Local Municipal Authority")
+
+    if report.stated_objection_authority and report.authority_status == VerificationStatus.ADMITTED.value:
+        recipient = report.stated_objection_authority
+    else:
+        recipient = resolve_addressee(jurisdiction_slug, ward=ward)
+
     cited_ids = [
         c.get("id", c.get("claim_id", ""))
         for c in report.claim_confidence
         if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
     ][:6]
 
-    # Extract ward
-    ward = next((c.get("ward") for c in report.claim_confidence if c.get("ward")), None)
+    # Determine recommended action based on document legal status and category
+    is_enacted = report.document_category == "enacted_regulation_master_plan" or report.document_legal_status == "gazetted_enacted_law"
 
-    # Resolve jurisdiction details from registry
-    registry = load_registry()
-    jurisdiction_slug = report.jurisdiction or "_default"
-    j_conf = registry.get(jurisdiction_slug, registry["_default"])
-    jurisdiction_name = j_conf.get("name", "Local Municipal Jurisdiction")
-
-    # 1. Document-first authority if ADMITTED; 2. Registry fallback
-    if report.stated_objection_authority and report.authority_status == VerificationStatus.ADMITTED.value:
-        recipient = report.stated_objection_authority
-    else:
-        recipient = resolve_addressee(jurisdiction_slug, ward=ward)
-
-    # Extract deadline
-    deadline = "Within 30 days of public notice publication"
-    for c in report.claim_confidence:
-        d = c.get("objection_deadline")
-        if d:
-            deadline = d
-            break
-
-    # Build prompt and call LLM
-    if is_objection:
+    if is_enacted:
+        action_type = "compliance_guide"
+        prompt = _build_compliance_guide_prompt(report, authority=recipient, jurisdiction_name=jurisdiction_name)
+        system = f"You are a municipal legal expert and civic compliance advisor in {jurisdiction_name}."
+        target_deadline = "Enacted Statutory Regulation (In Force)"
+    elif report.overall_verdict in ("negative", "mixed"):
+        action_type = "objection_letter"
         prompt = _build_objection_prompt(
             report,
             recipient=recipient,
             jurisdiction_name=jurisdiction_name,
-            selected_grievances=selected_grievances
+            selected_grievances=selected_grievances,
+            deadline=extracted_deadline
         )
-        action_type = "objection_letter"
-        system = (
-            f"You are an expert civic legal drafting assistant specializing in municipal administrative law for {jurisdiction_name}. "
-            "Write formal, professional objection letters for citizen advocacy."
-        )
+        system = f"You are a civic legal advocate drafting formal representations for {jurisdiction_name}."
+        target_deadline = extracted_deadline
     else:
-        prompt = _build_awareness_prompt(report, jurisdiction_name=jurisdiction_name)
         action_type = "awareness_summary"
-        system = (
-            f"You are a civic communications officer in {jurisdiction_name} writing accessible community bulletins "
-            "about positive municipal policies for ordinary citizens."
-        )
+        prompt = _build_awareness_prompt(report, jurisdiction_name=jurisdiction_name)
+        system = f"You are a civic communications officer in {jurisdiction_name}."
+        target_deadline = None
 
     try:
         content = await llm_client.generate_text(
@@ -201,40 +219,70 @@ async def generate_action_artifact(report: ReportData, selected_grievances: Opti
         )
         if not content or not content.strip():
             raise ValueError("LLM generated empty response")
-        if is_objection and "FORMAL OBJECTION" not in content:
+        if action_type == "objection_letter" and "FORMAL OBJECTION" not in content.upper():
             content = f"FORMAL OBJECTION PETITION\n\n{content}"
-        elif not is_objection and "COMMUNITY CIVIC BULLETIN" not in content:
+        elif action_type == "awareness_summary" and "COMMUNITY CIVIC BULLETIN" not in content.upper():
             content = f"COMMUNITY CIVIC BULLETIN\n\n{content}"
+        elif action_type == "compliance_guide" and "CITIZEN COMPLIANCE" not in content.upper():
+            content = f"# CITIZEN COMPLIANCE & RIGHTS GUIDE\n\n{content}"
         logger.info(f"LLM generated {action_type} successfully ({len(content)} chars)")
+
     except Exception as e:
-        logger.warning(f"LLM generation failed for action agent: {e}, using structured fallback")
-        if is_objection:
-            neg = "\n".join(f"  {i+1}. {p}" for i, p in enumerate(report.negative_impacts[:4]))
+        logger.warning(f"LLM generation failed for action agent: {e}, using verified clause fallback")
+        admitted = [
+            c for c in report.claim_confidence
+            if c.get("status") == "ADMITTED" or c.get("verification_status") == "ADMITTED"
+        ]
+        doc_title = report.document_title or "Municipal Planning Document"
+
+        if action_type == "compliance_guide":
+            clauses_summary = "\n".join(
+                f"- Page {c.get('page', '?')}: {c.get('text', '')[:180]}"
+                for c in admitted[:6]
+            )
+            content = (
+                f"# CITIZEN COMPLIANCE & RIGHTS GUIDE\n\n"
+                f"**Document**: {doc_title}\n"
+                f"**Status**: Enacted Statutory Law (Currently in Force)\n"
+                f"**Implementing Authority**: {recipient}\n\n"
+                f"## 1. Key Operative Provisions\n"
+                f"The following standards have been verified directly from the gazetted document:\n\n"
+                f"{clauses_summary}\n\n"
+                f"## 2. Citizen Rights & Protections\n"
+                f"- Existing lawful buildings and uses established prior to this notification remain protected.\n"
+                f"- Property owners are entitled to written inspection notices prior to any enforcement action.\n"
+                f"- Any adverse order may be appealed to the designated appellate authority under the governing municipal statute.\n"
+            )
+        elif action_type == "objection_letter":
+            neg_items = "\n".join(f"- {p}" for p in report.negative_impacts[:4]) or "- Adverse civic impact on local residents."
+            deadline_line = f"\nSubmission Deadline: {target_deadline}\n" if target_deadline else ""
             content = (
                 f"FORMAL OBJECTION PETITION\n\n"
                 f"To: {recipient}\n"
-                f"Subject: Formal Objection to Proposed Municipal Policy\n\n"
+                f"Subject: Formal Representation & Objections regarding {doc_title}\n\n"
                 f"Respected Authority,\n\n"
-                f"We write with reference to the recently published municipal notice under {jurisdiction_name} jurisdiction. "
-                f"Our verified analysis identifies the following concerns:\n\n"
-                f"{neg}\n\n"
-                f"We respectfully request a public consultation hearing before final notification.\n\n"
-                f"Deadline for response: {deadline}\n\n"
-                f"Sincerely,\nAggrieved Citizens and Residents Welfare Association"
+                f"We write with reference to the published notice for {doc_title}. "
+                f"Our verified analysis of the operative clauses raises the following critical concerns:\n\n"
+                f"{neg_items}\n\n"
+                f"We formally request a public consultation meeting and personal hearing to review these objections."
+                f"{deadline_line}\n"
+                f"Sincerely,\nAggrieved Citizens and Resident Representatives"
             )
         else:
-            pos = "\n".join(f"  - {p}" for p in report.positive_impacts[:4])
+            pos_items = "\n".join(f"- {p}" for p in report.positive_impacts[:4]) or "- Policy improvements noted."
             content = (
                 f"COMMUNITY CIVIC BULLETIN\n\n"
+                f"**{doc_title}**\n\n"
                 f"Summary: {report.policy_summary}\n\n"
-                f"Key Benefits:\n{pos}\n\n"
-                f"Share this with your fellow residents!"
+                f"Key Highlights:\n{pos_items}\n\n"
+                f"For further details, consult the public notice published by {recipient}."
             )
 
     return ActionArtifact(
         action_type=action_type,
         content=content.strip(),
-        target_deadline=deadline,
+        target_deadline=target_deadline,
         recipient_authority=recipient,
         cited_clauses=cited_ids if cited_ids else ["See report for source references"]
     )
+

@@ -35,7 +35,12 @@ export interface ReportDataPayload {
   stated_objection_authority?: string;
   authority_status?: string;
   omission_warnings?: string[];
+  document_title?: string;
+  document_category?: string;
+  document_legal_status?: string;
+  action_type_recommended?: string;
 }
+
 
 interface ReportViewProps {
   report: ReportDataPayload;
@@ -55,9 +60,12 @@ export const ReportView: React.FC<ReportViewProps> = ({
   const [isImpactDetailOpen, setIsImpactDetailOpen] = useState(false);
   const [isGrievanceSelectorOpen, setIsGrievanceSelectorOpen] = useState(false);
 
+  const isEnacted = report.document_category === 'enacted_regulation_master_plan' || report.action_type_recommended === 'citizen_compliance_guide';
+  const isAccountability = report.action_type_recommended === 'accountability_brief';
+
   const handleActionClick = async () => {
-    // For negative/mixed verdicts, open grievance selector instead of direct generation
-    if (report.overall_verdict !== 'positive' && unifiedImpacts.length > 0) {
+    // Only open grievance selector for draft objection petitions
+    if (!isEnacted && !isAccountability && report.overall_verdict !== 'positive' && unifiedImpacts.length > 0) {
       setIsGrievanceSelectorOpen(true);
       return;
     }
@@ -119,14 +127,45 @@ export const ReportView: React.FC<ReportViewProps> = ({
     (c, idx, arr) => arr.findIndex((x) => (x.notes || x.explanation) === (c.notes || c.explanation)) === idx
   );
 
-  // Deduplicate legal grounding by citation
-  const legalGrounding = (report.legal_grounding || []).filter(
-    (lg, idx, arr) => arr.findIndex((x) => x.citation === lg.citation) === idx
-  );
+  const legalGrounding = report.legal_grounding || [];
 
+  const getDocumentStatusBadge = () => {
+    if (!report.document_legal_status && !report.document_category) return null;
+    const status = report.document_legal_status || '';
+    if (status === 'gazetted_enacted_law' || report.document_category === 'enacted_regulation_master_plan') {
+      return (
+        <span className="px-3 py-1 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 text-xs font-semibold uppercase tracking-wider flex items-center space-x-1.5">
+          <ShieldCheck className="w-4 h-4" />
+          <span>Enacted Statutory Regulation</span>
+        </span>
+      );
+    }
+    if (status === 'draft_proposal' || report.document_category === 'draft_consultation_notice') {
+      return (
+        <span className="px-3 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700 text-xs font-semibold uppercase tracking-wider flex items-center space-x-1.5">
+          <AlertTriangle className="w-4 h-4" />
+          <span>Draft Public Notice</span>
+        </span>
+      );
+    }
+    if (status === 'council_resolution' || report.document_category === 'council_proceedings_minutes') {
+      return (
+        <span className="px-3 py-1 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700 text-xs font-semibold uppercase tracking-wider flex items-center space-x-1.5">
+          <FileText className="w-4 h-4" />
+          <span>Council Proceedings</span>
+        </span>
+      );
+    }
+    return (
+      <span className="px-3 py-1 rounded-full bg-slate-900 text-slate-300 border border-slate-700 text-xs font-semibold uppercase tracking-wider flex items-center space-x-1.5">
+        <FileText className="w-4 h-4" />
+        <span>Public Record</span>
+      </span>
+    );
+  };
 
   const getVerdictBadge = (verdict: string) => {
-    switch (verdict.toLowerCase()) {
+    switch (verdict) {
       case 'positive':
         return (
           <span className="px-3 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-xs font-semibold uppercase tracking-wider flex items-center space-x-1.5">
@@ -156,23 +195,30 @@ export const ReportView: React.FC<ReportViewProps> = ({
       {/* Header & Controls */}
       <div className="glass-panel rounded-2xl p-6 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-3 mb-1">
-            <h2 className="text-xl font-bold text-white">Civic Impact Audit Report</h2>
+          <div className="flex flex-wrap items-center gap-3 mb-1">
+            <h2 className="text-xl font-bold text-white">
+              {report.document_title || 'Civic Impact Audit Report'}
+            </h2>
+            {getDocumentStatusBadge()}
             {getVerdictBadge(report.overall_verdict)}
           </div>
           <p className="text-xs text-slate-400">
-            Computed from verified statutory legal grounding and NLI entailment gates.
+            Computed strictly from verbatim document text with zero synthetic fallbacks.
           </p>
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Verdict Gated Action Button */}
+          {/* Context-Aware Action Button */}
           <button
             type="button"
             onClick={handleActionClick}
             disabled={isGeneratingAction}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center space-x-2 disabled:opacity-60 ${
-              report.overall_verdict === 'positive'
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center space-x-2 disabled:opacity-60 ${
+              isEnacted
+                ? 'bg-gradient-to-r from-indigo-600 to-sky-600 text-white hover:from-indigo-500 hover:to-sky-500 shadow-indigo-900/40'
+                : isAccountability
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 shadow-cyan-900/40'
+                : report.overall_verdict === 'positive'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-emerald-900/40'
                 : 'bg-gradient-to-r from-rose-600 to-amber-600 text-white hover:from-rose-500 hover:to-amber-500 shadow-rose-900/40'
             }`}
@@ -180,12 +226,16 @@ export const ReportView: React.FC<ReportViewProps> = ({
             {isGeneratingAction ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Drafting Letter...</span>
+                <span>Generating Artifact...</span>
               </>
             ) : (
               <>
                 <span>
-                  {report.overall_verdict === 'positive'
+                  {isEnacted
+                    ? 'Generate Citizen Compliance & Rights Guide'
+                    : isAccountability
+                    ? 'Generate Accountability Brief'
+                    : report.overall_verdict === 'positive'
                     ? 'Generate Citizen Bulletin'
                     : 'Draft Formal Objection Petition'}
                 </span>

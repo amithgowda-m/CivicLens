@@ -170,3 +170,92 @@ def test_multi_genre_civic_docs_extraction():
     # "The exact" must NOT be extracted as a citation
     for c in clauses_zoning:
         assert c.cited_legal_basis != "The exact"
+
+
+def test_detect_document_typology_enacted_vs_draft():
+    """Verify autonomous detection of enacted Master Plans vs draft consultation notices."""
+    from backend.agents.typology import detect_document_typology_and_status
+
+    rmp_sample = [
+        "BANGALORE DEVELOPMENT AUTHORITY\n"
+        "G.O. No UDD 540 BEM AA SE 2004, Dated: 22-06-2007\n"
+        "Revised Master Plan 2015 - Volume III: Zonal Regulations\n"
+        "Chapter 3: Regulations for Main Land Use Zones and Setbacks."
+    ]
+    meta_rmp = detect_document_typology_and_status(rmp_sample, "bdazoning.pdf")
+    assert meta_rmp["document_category"] == "enacted_regulation_master_plan"
+    assert meta_rmp["document_legal_status"] == "gazetted_enacted_law"
+    assert meta_rmp["action_type_recommended"] == "citizen_compliance_guide"
+    assert "Revised Master Plan" in meta_rmp["document_title"]
+
+    draft_sample = [
+        "BANGALORE DEVELOPMENT AUTHORITY PUBLIC NOTICE\n"
+        "Draft Scheme for commercial zoning revision in Bellandur.\n"
+        "Objections and suggestions are invited within 30 days from publication."
+    ]
+    meta_draft = detect_document_typology_and_status(draft_sample, "draft_notice.pdf")
+    assert meta_draft["document_category"] == "draft_consultation_notice"
+    assert meta_draft["document_legal_status"] == "draft_proposal"
+    assert meta_draft["action_type_recommended"] == "objection_petition"
+
+
+@pytest.mark.asyncio
+async def test_action_agent_enacted_master_plan_no_fabricated_deadline():
+    """Verify that enacted master plans generate Citizen Compliance Guides with NO 30-day objection deadline."""
+    from backend.agents.action_agent import generate_action_artifact
+    from backend.schemas import ReportData
+
+    report = ReportData(
+        policy_summary="Master Plan 2015 Zonal Regulations defining setback standards and building lines.",
+        overall_verdict="negative",
+        negative_impacts=["Stringent building setback standards."],
+        jurisdiction="karnataka_bengaluru",
+        document_title="Revised Master Plan 2015 - Volume III: Zonal Regulations",
+        document_category="enacted_regulation_master_plan",
+        document_legal_status="gazetted_enacted_law",
+        action_type_recommended="citizen_compliance_guide",
+        claim_confidence=[
+            {
+                "id": "cl_01",
+                "text": "Building line is the line up to which the plinth of a building adjoining a street may lawfully extend.",
+                "page": 3,
+                "status": "ADMITTED"
+            }
+        ]
+    )
+
+    artifact = await generate_action_artifact(report)
+    assert artifact.action_type == "compliance_guide"
+    assert "CITIZEN COMPLIANCE" in artifact.content.upper()
+    # Must NOT have fabricated 30 days deadline
+    assert "Within 30 days" not in (artifact.target_deadline or "")
+
+
+@pytest.mark.asyncio
+async def test_pure_document_grounding_uses_clause_text():
+    """Verify that legal grounding uses the verbatim document clause as excerpt, with zero external static file quotes."""
+    from backend.agents.legal_grounding import legal_grounding_node
+    from backend.schemas import GroundingStatus
+
+    clause_text = "Building setback regulations under Section 14 of Karnataka Town and Country Planning Act 1961."
+    state = {
+        "verified_claims": [
+            {
+                "clause": {
+                    "id": "cl_rmp",
+                    "text": clause_text,
+                    "page": 6,
+                    "cited_legal_basis": "Section 14 of KTCP Act 1961",
+                    "jurisdiction_hint": "karnataka_bengaluru"
+                }
+            }
+        ]
+    }
+
+    res = await legal_grounding_node(state)
+    lg = res["grounded_claims"][0]["legal_grounding"]
+    assert lg["grounding_status"] == GroundingStatus.MATCHED.value
+    assert lg["grounded"] is True
+    assert lg["matched_statute_section"] == "Section 14"
+    assert lg["statute_excerpt"] == clause_text
+

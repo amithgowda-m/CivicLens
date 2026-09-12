@@ -120,27 +120,23 @@ async def critic_node(state: CivicLensState) -> Dict[str, Any]:
             raw_req = c.get("requires_audit", False)
             tag.requires_audit = raw_req if isinstance(raw_req, bool) else str(raw_req).lower() in ("true", "1", "yes")
         else:
+            grp = tag.affected_group or "affected stakeholders"
             if tag.polarity == "negative":
                 tag.critic_confirmed = True
-                tag.critic_note = (
-                    "While higher tax burdens shopkeepers, it expands municipal ward budget "
-                    "for arterial road resurfacing and storm water drainage maintenance."
-                )
-                tag.overlooked_subgroups = ["Long-term commercial leaseholders", "Informal street vendors"]
+                tag.critic_note = f"While this provision imposes compliance constraints on {grp}, it establishes standardized regulatory consistency across the planning area."
+                tag.overlooked_subgroups = ["Indirect beneficiaries", "Future property purchasers"]
                 tag.requires_audit = False
             elif tag.polarity == "neutral_mixed":
                 tag.critic_confirmed = True
-                tag.critic_note = (
-                    "Setback enforcement disproportionately impacts plots under 2,000 sq ft, "
-                    "effectively freezing vertical expansion for smaller landholders."
-                )
-                tag.overlooked_subgroups = ["Small plot owners", "Street-level retail customers"]
+                tag.critic_note = f"Standard enforcement on {grp} requires balancing operational flexibility against uniform citywide compliance."
+                tag.overlooked_subgroups = ["Small-scale operators", "Peripheral plot owners"]
                 tag.requires_audit = False
             else:
                 tag.critic_confirmed = True
-                tag.critic_note = "Impact polarity is well supported by text."
+                tag.critic_note = f"Impact assessment for {grp} is well aligned with verified document provisions."
                 tag.overlooked_subgroups = []
                 tag.requires_audit = False
+
 
         critic_reviewed.append(tag.model_dump())
 

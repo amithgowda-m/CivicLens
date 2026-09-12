@@ -87,43 +87,31 @@ async def upload_document(
 
     if file:
         content = await file.read()
-        filename = file.filename
+        filename = file.filename or "uploaded_document.pdf"
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     elif sample_name:
-        sample_path = os.path.join("backend/data/sample_docs", sample_name)
-        if os.path.exists(sample_path):
-            with open(sample_path, "rb") as f:
+        candidate_paths = [
+            os.path.join("backend/data/sample_docs", sample_name),
+            os.path.join(".", sample_name)
+        ]
+        found_path = next((p for p in candidate_paths if os.path.exists(p)), None)
+        if found_path:
+            with open(found_path, "rb") as f:
                 content = f.read()
             filename = sample_name
         else:
-            # Graceful fallback: use rich synthetic notice so pipeline always runs
-            logger.warning(f"Sample '{sample_name}' not found — using synthetic fallback content.")
-            filename = sample_name
-            content = (
-                "BANGALORE DEVELOPMENT AUTHORITY PUBLIC NOTICE BDA/ZR/2024/150/0892\n"
-                "NOTICE UNDER SECTION 14 OF THE KARNATAKA TOWN AND COUNTRY PLANNING ACT 1961\n\n"
-                "Proposed revision of commercial setback regulations in Ward 150 (Bellandur, Bengaluru).\n"
-                "All commercial buildings on plots between 1000-5000 sq ft shall maintain a mandatory "
-                "front setback of 3.0 metres from the plot boundary, increased from the current 1.8 metres "
-                "under BDA Regulation Clause 9.1(b).\n\n"
-                "Land use reclassification: Survey numbers 42, 43, 44, 67, 68 of Bellandur Village "
-                "are proposed for reclassification from Mixed Residential (MR-2) to Commercial (C-2) zone. "
-                "Estimated 340 residential units affected.\n\n"
-                "Property tax revision under Section 108A: ARV rates revised from Rs 4-8 to Rs 18-45 "
-                "per sq ft per annum, representing a 3x to 5x increase for affected property owners.\n\n"
-                "Small commercial establishments (1200 tenants, plots under 2000 sq ft) face mandatory "
-                "structural modifications with no displacement compensation framework proposed.\n\n"
-                "Objection deadline: 30 days from gazette notification. Submit to Joint Commissioner "
-                "(Zoning), Bangalore Development Authority, Kumara Park East, Bengaluru 560001.\n\n"
-                "Legal basis: KTCP Act 1961 Sections 12, 14, 15; GBGA 2024 Sections 4, 7; "
-                "BDA Master Plan 2031 Clauses 7.3, 9.1; BBMP Property Tax Regulation Section 108A."
-            ).encode("utf-8")
+            raise HTTPException(status_code=404, detail=f"Sample document '{sample_name}' not found.")
     else:
-        filename = "bbmp_zoning_ward150_notice.pdf"
-        content = (
-            "BBMP ZONING NOTICE WARD 150: Synthetic demo document for CivicLens pipeline testing. "
-            "Commercial setback revision from 1.8m to 3.0m under KTCP Act 1961 Section 14. "
-            "Property tax ARV revision under Section 108A affects 1847 properties in Ward 150."
-        ).encode("utf-8")
+        # Default to authentic sample file on disk
+        default_path = "backend/data/sample_docs/sample_municipal_notice.pdf"
+        if os.path.exists(default_path):
+            with open(default_path, "rb") as f:
+                content = f.read()
+            filename = "sample_municipal_notice.pdf"
+        else:
+            raise HTTPException(status_code=400, detail="No document provided. Please upload a file or specify sample_name.")
+
 
 
     DOC_STORE[doc_id] = {
