@@ -1,6 +1,6 @@
 # CivicLens
 
-CivicLens is a multi-agent civic document analysis system designed for municipal transparency. It ingests official municipal notifications, zoning orders, city council agendas, and RTI replies, producing an auditable, structured civic impact report through an orchestrated LangGraph multi-agent pipeline.
+CivicLens is a multi-agent civic document analysis system designed for greater municipal transparency. It ingests official municipal notifications, zoning orders, city council agendas, and RTI replies, producing an auditable, structured civic impact report through an orchestrated LangGraph multi-agent pipeline.
 
 ---
 
