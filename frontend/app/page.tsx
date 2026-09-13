@@ -4,8 +4,9 @@ import React from 'react';
 import { useApp } from './context/AppContext';
 import {
   Upload, Play, RefreshCw, CheckCircle2, AlertTriangle,
-  Cpu, Shield, AlertOctagon, Scale, FileText,
+  Cpu, Shield, AlertOctagon, Scale, FileText, Sparkles,
 } from 'lucide-react';
+import { parseSummaryToPoints } from '@/components/ExecutiveSummary';
 
 function VerdictChip({ verdict }: { verdict: string }) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -197,15 +198,50 @@ export default function OverviewPage() {
                 )}
               </div>
 
-              {/* Summary text */}
-              <div className="px-5 py-4">
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: '72ch' }}>
-                  {report.policy_summary}
-                </p>
+              {/* Summary text - Point-by-point presentation */}
+              <div className="px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    Executive Policy Summary
+                  </span>
+                  {report.policy_summary && (
+                    <span className="chip chip-neutral text-[10px] flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-sky-400" />
+                      <span>{parseSummaryToPoints(report.policy_summary).length} Key Points</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {parseSummaryToPoints(report.policy_summary).map((point, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-2.5 p-2.5 rounded-md transition-colors"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.015)',
+                        border: '1px solid rgba(255, 255, 255, 0.04)',
+                      }}
+                    >
+                      <div
+                        className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold mt-0.5"
+                        style={{
+                          background: 'var(--accent-dim)',
+                          color: 'var(--accent)',
+                          border: '1px solid var(--accent-border)',
+                        }}
+                      >
+                        {idx + 1}
+                      </div>
+                      <p className="text-sm leading-relaxed flex-1" style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                        {point}
+                      </p>
+                    </div>
+                  ))}
+                </div>
 
                 {/* Addressee */}
                 {report.stated_objection_authority && (
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <div className="mt-3 pt-2.5 flex items-center gap-2 flex-wrap" style={{ borderTop: '1px solid var(--border)' }}>
                     <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Addressee:</span>
                     <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
                       {report.stated_objection_authority}

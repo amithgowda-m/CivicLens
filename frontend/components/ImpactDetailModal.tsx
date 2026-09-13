@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Brain, ShieldAlert, CheckCircle, XCircle, Users, AlertTriangle } from 'lucide-react';
+import { X, Brain, ShieldAlert, CheckCircle, XCircle, Users, AlertTriangle, FileText, Bookmark } from 'lucide-react';
 
 export interface ImpactItemData {
   text: string;
@@ -12,6 +12,9 @@ export interface ImpactItemData {
   critic_confirmed?: boolean | null;
   critic_note?: string | null;
   overlooked_subgroups?: string[];
+  claim_id?: string;
+  policy_clause?: string;
+  clause_type?: string;
 }
 
 interface ImpactDetailModalProps {
@@ -83,6 +86,39 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
         {/* Body */}
         <div className="modal-body space-y-4">
 
+          {/* Referenced Policy Clause */}
+          {impact.policy_clause && (
+            <div
+              className="rounded p-3.5 space-y-2"
+              style={{
+                background: 'rgba(56, 189, 248, 0.05)',
+                border: '1px solid rgba(56, 189, 248, 0.2)',
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#38bdf8' }}>
+                  <Bookmark className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Referenced Policy Provision</span>
+                </div>
+                {impact.clause_type && (
+                  <span className="chip chip-accent text-[10px]">
+                    {impact.clause_type.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+              <div
+                className="text-xs font-mono leading-relaxed p-2.5 rounded"
+                style={{
+                  background: 'var(--bg-base)',
+                  border: '1px solid var(--border)',
+                  color: '#93c5fd',
+                }}
+              >
+                &ldquo;{impact.policy_clause}&rdquo;
+              </div>
+            </div>
+          )}
+
           {/* Impact Text */}
           <div
             className="p-3.5 rounded text-xs leading-relaxed"
@@ -94,6 +130,9 @@ export const ImpactDetailModal: React.FC<ImpactDetailModalProps> = ({
               color: 'var(--text-primary)',
             }}
           >
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+              Assessed Stakeholder Impact
+            </div>
             {impact.text}
           </div>
 

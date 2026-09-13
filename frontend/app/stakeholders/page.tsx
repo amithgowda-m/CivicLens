@@ -5,15 +5,18 @@ import { useApp, ImpactItemData } from '../context/AppContext';
 import {
   Users, AlertTriangle, CheckCircle2, XCircle, AlertOctagon,
   ChevronDown, ChevronRight, Eye, Loader2, ArrowRight,
+  FileText, Bookmark, TrendingUp, ShieldAlert,
 } from 'lucide-react';
 import { ImpactDetailModal } from '@/components/ImpactDetailModal';
 import { GrievanceSelector } from '@/components/GrievanceSelector';
 
 function ImpactRow({
   impact,
+  fallbackClause,
   onViewDetails,
 }: {
   impact: ImpactItemData;
+  fallbackClause?: string;
   onViewDetails: (i: ImpactItemData) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -23,6 +26,9 @@ function ImpactRow({
   const polarityColor = isPos ? 'var(--success)' : isNeg ? 'var(--danger)' : 'var(--warning)';
   const polarityLabel = isPos ? 'Positive' : isNeg ? 'Negative' : 'Mixed';
   const polarityChipCls = isPos ? 'chip-success' : isNeg ? 'chip-danger' : 'chip-warning';
+
+  const policyClauseText = impact.policy_clause || fallbackClause || impact.text;
+  const policyClauseType = impact.clause_type;
 
   return (
     <>
@@ -62,18 +68,20 @@ function ImpactRow({
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs transition-colors"
-            style={{ color: 'var(--text-muted)' }}
+            className="flex items-center gap-1 text-xs transition-colors p-1 rounded hover:bg-white/5"
+            style={{ color: expanded ? 'var(--accent)' : 'var(--text-muted)' }}
+            title={expanded ? 'Collapse policy details' : 'Expand specific policy & impact details'}
+            aria-label={expanded ? 'Collapse policy details' : 'Expand specific policy & impact details'}
           >
-            {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
           <button
-            onClick={() => onViewDetails(impact)}
-            className="flex items-center gap-1 text-xs transition-colors"
+            onClick={() => onViewDetails({ ...impact, policy_clause: policyClauseText, clause_type: policyClauseType })}
+            className="flex items-center gap-1 text-xs transition-colors p-1 rounded hover:bg-white/5"
             style={{ color: 'var(--accent)' }}
-            title="Agent view"
+            title="Dual-agent inspection view"
           >
-            <Eye className="w-3.5 h-3.5" />
+            <Eye className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -81,31 +89,101 @@ function ImpactRow({
       {/* Expanded detail */}
       {expanded && (
         <div
-          className="px-5 py-3 space-y-2.5 text-sm animate-in"
+          className="px-5 py-4 space-y-3.5 text-sm animate-in"
           style={{
             borderBottom: '1px solid var(--border)',
-            borderLeft: `2px solid ${polarityColor}`,
-            background: 'rgba(255,255,255,0.015)',
+            borderLeft: `3px solid ${polarityColor}`,
+            background: 'rgba(255,255,255,0.018)',
           }}
         >
-          {impact.impact_reasoning && (
-            <div>
-              <div className="section-label mb-1">Reasoning</div>
-              <p style={{ color: 'var(--text-muted)' }}>{impact.impact_reasoning}</p>
+          {/* Specific Policy Provision Being Evaluated */}
+          <div
+            className="rounded-lg p-3.5 space-y-2"
+            style={{
+              background: 'rgba(56, 189, 248, 0.05)',
+              border: '1px solid rgba(56, 189, 248, 0.18)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#38bdf8' }}>
+                <Bookmark className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Specific Policy Provision / Notice Clause</span>
+              </div>
+              {policyClauseType && (
+                <span className="chip chip-accent text-[10px]">
+                  {policyClauseType.replace(/_/g, ' ')}
+                </span>
+              )}
             </div>
-          )}
+            <p
+              className="text-xs font-mono leading-relaxed p-2.5 rounded"
+              style={{
+                background: 'var(--bg-base)',
+                border: '1px solid var(--border)',
+                color: '#bae6fd',
+              }}
+            >
+              &ldquo;{policyClauseText}&rdquo;
+            </p>
+          </div>
+
+          {/* Detailed Civic Impact on Affected Group */}
+          <div
+            className="rounded-lg p-3.5 space-y-2"
+            style={{
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                <TrendingUp className="w-3.5 h-3.5 flex-shrink-0" style={{ color: polarityColor }} />
+                <span>Impact on {impact.affected_group || 'Affected Stakeholders'}</span>
+              </div>
+              <span className={`chip ${polarityChipCls} text-[10px]`}>
+                {polarityLabel} Impact
+              </span>
+            </div>
+            {impact.impact_reasoning ? (
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                {impact.impact_reasoning}
+              </p>
+            ) : (
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                {impact.text}
+              </p>
+            )}
+          </div>
+
+          {/* Adversarial Critic Note */}
           {impact.critic_note && (
-            <div>
-              <div className="section-label mb-1">Critic Note</div>
-              <p style={{ color: 'var(--text-muted)' }}>{impact.critic_note}</p>
+            <div
+              className="rounded-lg p-3 space-y-1.5"
+              style={{
+                background: 'rgba(168, 85, 247, 0.05)',
+                border: '1px solid rgba(168, 85, 247, 0.18)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#c084fc' }}>
+                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Adversarial Critic Counter-Perspective</span>
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                {impact.critic_note}
+              </p>
             </div>
           )}
+
+          {/* Overlooked Subgroups */}
           {impact.overlooked_subgroups && impact.overlooked_subgroups.length > 0 && (
             <div>
-              <div className="section-label mb-1">Overlooked Subgroups</div>
+              <div className="section-label mb-1.5">Overlooked Demographic Subgroups</div>
               <div className="flex flex-wrap gap-1.5">
                 {impact.overlooked_subgroups.map((sub, i) => (
-                  <span key={i} className="chip chip-warning text-[11px]">{sub}</span>
+                  <span key={i} className="chip chip-warning text-[11px] flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>{sub}</span>
+                  </span>
                 ))}
               </div>
             </div>
@@ -147,13 +225,34 @@ export default function StakeholdersPage() {
 
   const stakeholders = Array.from(new Set(report.stakeholders_impacted || []));
 
+  const claims = report.claim_confidence || [];
   const unifiedImpacts: ImpactItemData[] = (() => {
     if (report.impacts && report.impacts.length > 0) return report.impacts;
     const pos = Array.from(new Set(report.positive_impacts || []));
     const neg = Array.from(new Set(report.negative_impacts || []));
     return [
-      ...pos.map((text) => ({ text, polarity: 'positive' as const, affected_group: text.split(':')[0]?.trim() || '', impact_reasoning: text.split(':').slice(1).join(':').trim() || text, critic_confirmed: null, critic_note: null, overlooked_subgroups: [] })),
-      ...neg.map((text) => ({ text, polarity: 'negative' as const, affected_group: text.split(':')[0]?.trim() || '', impact_reasoning: text.split(':').slice(1).join(':').trim() || text, critic_confirmed: null, critic_note: null, overlooked_subgroups: [] })),
+      ...pos.map((text, idx) => ({
+        text,
+        polarity: 'positive' as const,
+        affected_group: text.split(':')[0]?.trim() || 'General Ward Residents',
+        impact_reasoning: text.split(':').slice(1).join(':').trim() || text,
+        critic_confirmed: null,
+        critic_note: null,
+        overlooked_subgroups: [],
+        policy_clause: claims[idx % Math.max(1, claims.length)]?.text || undefined,
+        clause_type: 'zoning_or_municipal_notice',
+      })),
+      ...neg.map((text, idx) => ({
+        text,
+        polarity: 'negative' as const,
+        affected_group: text.split(':')[0]?.trim() || 'General Ward Residents',
+        impact_reasoning: text.split(':').slice(1).join(':').trim() || text,
+        critic_confirmed: null,
+        critic_note: null,
+        overlooked_subgroups: [],
+        policy_clause: claims[(idx + pos.length) % Math.max(1, claims.length)]?.text || undefined,
+        clause_type: 'fiscal_or_development_restriction',
+      })),
     ];
   })();
 
@@ -318,6 +417,7 @@ export default function StakeholdersPage() {
                 <ImpactRow
                   key={i}
                   impact={impact}
+                  fallbackClause={claims.find((c: any) => c.claim_id === impact.claim_id)?.text || claims[i % Math.max(1, claims.length)]?.text}
                   onViewDetails={(imp) => { setActiveImpact(imp); setIsImpactOpen(true); }}
                 />
               ))

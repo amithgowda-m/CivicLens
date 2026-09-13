@@ -88,6 +88,9 @@ class ImpactItem(BaseModel):
     critic_confirmed: Optional[bool] = None
     critic_note: Optional[str] = None
     overlooked_subgroups: List[str] = Field(default_factory=list)
+    claim_id: Optional[str] = Field(default=None, description="Underlying claim/clause identifier")
+    policy_clause: Optional[str] = Field(default=None, description="Verbatim source policy clause from the document")
+    clause_type: Optional[str] = Field(default=None, description="Policy classification or typology category")
 
 class ReportData(BaseModel):
     policy_summary: str

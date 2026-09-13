@@ -79,7 +79,8 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     positives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "positive"]))
     negatives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "negative"]))
 
-    # Build unified impacts list with both agents' perspectives
+    # Build unified impacts list with both agents' perspectives and underlying policy clauses
+    claim_map = {c.get("clause", {}).get("id"): c.get("clause", {}) for c in admitted_claims if c.get("clause")}
     seen_impact_texts = set()
     impacts: List[Dict[str, Any]] = []
     for t in critic_tags:
@@ -87,6 +88,11 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         if text in seen_impact_texts:
             continue
         seen_impact_texts.add(text)
+        cid = t.get("claim_id")
+        cl = claim_map.get(cid, {}) if cid else {}
+        policy_clause = cl.get("text") or ""
+        clause_type = cl.get("clause_type") or cl.get("typology") or ""
+
         item = ImpactItem(
             text=text,
             polarity=t.get("polarity", "neutral_mixed"),
@@ -95,6 +101,9 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
             critic_confirmed=t.get("critic_confirmed"),
             critic_note=t.get("critic_note"),
             overlooked_subgroups=t.get("overlooked_subgroups", []),
+            claim_id=cid if cid else None,
+            policy_clause=policy_clause if policy_clause else None,
+            clause_type=str(clause_type) if clause_type else None,
         )
         impacts.append(item.model_dump())
 
@@ -181,20 +190,23 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
     doc_title = state.get("document_title") or "Municipal Civic Document"
     try:
-        summary_prompt = f"Synthesize a 2-3 sentence plain-language executive policy summary for citizens regarding {doc_title} based ONLY on these verified clauses:\n{claims_text}"
-        policy_summary = await llm_client.generate_text(summary_prompt, system_prompt="You are a clear civic document summarizer for local citizens. Write in plain, objective language.")
+        summary_prompt = (
+            f"Synthesize a clear, 3-4 point plain-language executive policy summary for citizens regarding {doc_title} "
+            f"based ONLY on these verified clauses:\n{claims_text}\n\n"
+            "Format as concise, point-by-point bullet points starting with '- ' highlighting the core policy directive, affected areas/wards, procedural requirements, and citizen impact."
+        )
+        policy_summary = await llm_client.generate_text(summary_prompt, system_prompt="You are a clear civic document summarizer for local citizens. Write in plain, objective language with clean bullet points.")
     except Exception as e:
         logger.warning(f"LLM Policy Summary generation failed ({e}), summarizing strictly from verified clauses.")
         top_clauses = [
             c.get("clause", {}).get("text", "").strip()
-            for c in admitted_claims[:3]
+            for c in admitted_claims[:4]
             if c.get("clause", {}).get("text")
         ]
         if top_clauses:
-            joined = "; ".join(top_clauses)
-            policy_summary = f"{doc_title}: Verified provisions specify that {joined}."
+            policy_summary = "\n".join([f"- {cl}" for cl in top_clauses])
         else:
-            policy_summary = f"{doc_title}: Administrative and regulatory provisions verified from document text."
+            policy_summary = f"- {doc_title}: Administrative and regulatory provisions verified from document text."
 
     report = ReportData(
         policy_summary=policy_summary,

@@ -19,6 +19,9 @@ export interface ImpactItemData {
   critic_confirmed?: boolean | null;
   critic_note?: string | null;
   overlooked_subgroups?: string[];
+  claim_id?: string;
+  policy_clause?: string;
+  clause_type?: string;
 }
 
 export interface ReportDataPayload {

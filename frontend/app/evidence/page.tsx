@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { GrievanceSelector } from '@/components/GrievanceSelector';
 import { ImpactItemData } from '@/app/context/AppContext';
+import { ExecutiveSummary } from '@/components/ExecutiveSummary';
 
 function VerdictBar({ verdict }: { verdict: string }) {
   const map: Record<string, { label: string; chipCls: string; desc: string }> = {
@@ -268,46 +269,12 @@ export default function EvidencePage() {
         <VerdictBar verdict={report.overall_verdict} />
 
         {/* Executive summary */}
-        <div
-          className="rounded-lg"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
-          <div
-            className="px-5 py-3 flex items-center gap-2"
-            style={{ borderBottom: '1px solid var(--border)' }}
-          >
-            <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
-            <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Executive Summary</span>
-          </div>
-          <div className="px-5 py-4">
-            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: '80ch', lineHeight: '1.7' }}>
-              {report.policy_summary}
-            </p>
-            {(report.jurisdiction || report.stated_objection_authority) && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {report.jurisdiction && (
-                  <span className="chip chip-accent">
-                    Jurisdiction: {report.jurisdiction.replace(/_/g, ' ')}
-                  </span>
-                )}
-                {report.stated_objection_authority && (
-                  <span className="chip chip-neutral flex items-center gap-1">
-                    <UserCheck className="w-3 h-3" />
-                    {report.stated_objection_authority}
-                    {report.authority_status && (
-                      <span
-                        className="font-semibold ml-1"
-                        style={{ color: report.authority_status === 'ADMITTED' ? 'var(--success)' : '#f87171' }}
-                      >
-                        [{report.authority_status}]
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <ExecutiveSummary
+          summary={report.policy_summary}
+          jurisdiction={report.jurisdiction}
+          statedAuthority={report.stated_objection_authority}
+          authorityStatus={report.authority_status}
+        />
 
         {/* Claims stats */}
         {claims.length > 0 && (

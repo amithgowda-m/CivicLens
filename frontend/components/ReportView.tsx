@@ -16,9 +16,12 @@ import {
   AlertOctagon,
   Loader2,
   Eye,
+  Bookmark,
+  Sparkles,
 } from 'lucide-react';
 import { ImpactDetailModal, ImpactItemData } from './ImpactDetailModal';
 import { GrievanceSelector } from './GrievanceSelector';
+import { parseSummaryToPoints } from './ExecutiveSummary';
 
 export interface ReportDataPayload {
   policy_summary: string;
@@ -233,21 +236,48 @@ export const ReportView: React.FC<ReportViewProps> = ({
         {/* Left Column: Summary, Stakeholders, Impacts, Risk Flags, Legal */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* Section 1: Policy Summary */}
+          {/* Section 1: Policy Summary (Point by Point) */}
           <div className="glass-panel rounded-2xl p-6 border border-slate-800">
-            <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider mb-3 flex items-center space-x-2">
-              <FileText className="w-4 h-4" />
-              <span>1. Executive Policy Summary</span>
-            </h3>
-            <p className="text-sm text-slate-200 leading-relaxed font-sans">
-              {lang === 'kn' && isKannadaAvailable
-                ? report.kannada_translation?.policy_summary
-                : report.policy_summary}
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider flex items-center space-x-2">
+                <FileText className="w-4 h-4" />
+                <span>1. Executive Policy Summary</span>
+              </h3>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-300 border border-sky-800 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-sky-400" />
+                <span>
+                  {parseSummaryToPoints(
+                    lang === 'kn' && isKannadaAvailable
+                      ? report.kannada_translation?.policy_summary || report.policy_summary
+                      : report.policy_summary
+                  ).length} Key Points
+                </span>
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {parseSummaryToPoints(
+                lang === 'kn' && isKannadaAvailable
+                  ? report.kannada_translation?.policy_summary || report.policy_summary
+                  : report.policy_summary
+              ).map((point, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 transition-colors"
+                >
+                  <div className="flex-shrink-0 w-5 h-5 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                    {idx + 1}
+                  </div>
+                  <p className="text-sm text-slate-200 leading-relaxed font-sans flex-1">
+                    {point}
+                  </p>
+                </div>
+              ))}
+            </div>
 
             {/* Jurisdiction and Addressee Badges */}
             {(report.jurisdiction || report.stated_objection_authority) && (
-              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/80">
+              <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-slate-800/80">
                 {report.jurisdiction && (
                   <span className="px-2.5 py-1 rounded-md bg-sky-950/80 text-sky-300 border border-sky-800 text-[11px] font-mono">
                     Jurisdiction: <strong>{report.jurisdiction.replace(/_/g, ' ')}</strong>
@@ -318,6 +348,13 @@ export const ReportView: React.FC<ReportViewProps> = ({
                           : 'border-l-amber-500 bg-amber-950/15 border border-r-amber-900/30 border-t-amber-900/30 border-b-amber-900/30'
                       }`}
                     >
+                      {impact.policy_clause && (
+                        <div className="mb-2 p-2 rounded bg-slate-950/60 border border-slate-800/80 text-[11px] font-mono text-sky-300">
+                          <span className="text-slate-500 mr-1.5">Policy Clause:</span>
+                          &ldquo;{impact.policy_clause}&rdquo;
+                        </div>
+                      )}
+
                       <p className="text-xs text-slate-200 leading-relaxed mb-2.5">{impact.text}</p>
 
                       <div className="flex items-center justify-between">

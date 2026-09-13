@@ -77,7 +77,9 @@ backend\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --host 127
 
 # Linux / macOS:
 source backend/.venv/bin/activate
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+PYTHONPATH=. uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+# or alternatively:
+python3 -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - **API Documentation (Swagger)**: `http://127.0.0.1:8000/docs`
@@ -105,7 +107,7 @@ Execute the automated test suite across all agents and pipeline flows:
 $env:CIVICLENS_MOCK_NLI="1"; backend\.venv\Scripts\python.exe -m pytest backend/tests/ -v
 
 # Linux / macOS:
-CIVICLENS_MOCK_NLI="1" backend/.venv/bin/pytest backend/tests/ -v
+CIVICLENS_MOCK_NLI="1" PYTHONPATH=. pytest backend/tests/ -v
 ```
 
 ### Verified Test Coverage (38 Tests Passing):

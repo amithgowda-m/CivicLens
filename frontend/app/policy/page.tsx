@@ -6,6 +6,7 @@ import {
   FileText, Scale, AlertTriangle, AlertOctagon,
   ChevronDown, ChevronRight, Search, CheckCircle2,
 } from 'lucide-react';
+import { ExecutiveSummary } from '@/components/ExecutiveSummary';
 
 function AccordionRow({
   title,
@@ -125,29 +126,15 @@ export default function PolicyPage() {
 
       <div className="page-body space-y-5">
 
-        {/* ── Executive Summary ── */}
-        <div
-          className="rounded-lg"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
-          <div
-            className="px-5 py-3 flex items-center gap-2"
-            style={{ borderBottom: '1px solid var(--border)' }}
-          >
-            <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
-            <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-              Executive Summary
-            </span>
-          </div>
-          <div className="px-5 py-4">
-            <p
-              className="text-sm leading-relaxed"
-              style={{ color: 'var(--text-secondary)', maxWidth: '80ch', lineHeight: '1.7' }}
-            >
-              {report.policy_summary}
-            </p>
-          </div>
-        </div>
+        {/* ── Executive Summary (Point-by-Point) ── */}
+        <ExecutiveSummary
+          summary={report.policy_summary}
+          title="Executive Policy Analysis"
+          subtitle="Point-by-point breakdown of verified municipal mandates and legal clauses"
+          jurisdiction={report.jurisdiction}
+          statedAuthority={report.stated_objection_authority}
+          authorityStatus={report.authority_status}
+        />
 
         {/* ── Legal Grounding ── */}
         <div
