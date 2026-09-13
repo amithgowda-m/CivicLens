@@ -217,15 +217,14 @@ async def generate_action_artifact(report: ReportData, selected_grievances: Opti
             system_prompt=system,
             json_mode=False
         )
-        if not content or not content.strip():
-            raise ValueError("LLM generated empty response")
-        if action_type == "objection_letter" and "FORMAL OBJECTION" not in content.upper():
+        if action_type == "objection_letter" and not content.strip().startswith("FORMAL OBJECTION"):
             content = f"FORMAL OBJECTION PETITION\n\n{content}"
-        elif action_type == "awareness_summary" and "COMMUNITY CIVIC BULLETIN" not in content.upper():
+        elif action_type == "awareness_summary" and not content.strip().startswith("COMMUNITY CIVIC BULLETIN"):
             content = f"COMMUNITY CIVIC BULLETIN\n\n{content}"
-        elif action_type == "compliance_guide" and "CITIZEN COMPLIANCE" not in content.upper():
+        elif action_type == "compliance_guide" and not content.strip().startswith("# CITIZEN COMPLIANCE"):
             content = f"# CITIZEN COMPLIANCE & RIGHTS GUIDE\n\n{content}"
         logger.info(f"LLM generated {action_type} successfully ({len(content)} chars)")
+
 
     except Exception as e:
         logger.warning(f"LLM generation failed for action agent: {e}, using verified clause fallback")

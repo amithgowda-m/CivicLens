@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, AlertOctagon, CheckSquare, Square, ArrowRight, Loader2, FileWarning } from 'lucide-react';
 import { ImpactItemData } from './ImpactDetailModal';
 
@@ -17,17 +18,27 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
   impacts,
   onSubmit,
 }) => {
-  // Filter to negative and mixed impacts as selectable grievances
-  const grievances = impacts.filter(
-    (i) => i.polarity === 'negative' || i.polarity === 'neutral_mixed'
-  );
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  const [selected, setSelected] = useState<Set<number>>(
-    new Set(grievances.map((_, idx) => idx))
-  );
+  // Filter to all non-positive impacts (both negative/red and mixed/yellow)
+  const grievances = impacts.filter((i) => i.polarity !== 'positive');
+
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(grievances.map((_, idx) => idx)));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (!isOpen) return null;
+  // Body scroll lock & initialize selection on modal open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+      setSelected(new Set(grievances.map((_, idx) => idx)));
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+    return () => { document.body.classList.remove('modal-open'); };
+  }, [isOpen]);
+
+  if (!isOpen || !mounted) return null;
 
   const toggleSelection = (idx: number) => {
     setSelected((prev) => {
@@ -63,39 +74,49 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-      <div className="glass-panel w-full max-w-2xl rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+  return createPortal(
+    <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-panel max-w-2xl" style={{ maxHeight: '82vh' }}>
 
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-rose-950/80 text-rose-400 border border-rose-800">
-              <FileWarning className="w-5 h-5" />
+        <div className="modal-header">
+          <div className="flex items-center gap-3">
+            <div
+              className="p-1.5 rounded"
+              style={{ background: 'var(--danger-dim)', border: '1px solid rgba(239,68,68,0.2)' }}
+            >
+              <FileWarning className="w-4 h-4" style={{ color: '#f87171' }} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Select Grievances for Objection</h3>
-              <p className="text-xs text-slate-400">
-                Choose the specific concerns to include in your objection petition
-              </p>
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Select Grievances for Objection Petition
+              </div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Choose specific adverse (red) or mixed (yellow) impacts to cite in the formal objection
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
-            <X className="w-5 h-5" />
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-3">
+        <div className="modal-body space-y-3">
 
           {/* Select All Toggle */}
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400 font-medium">
-              {selected.size} of {grievances.length} grievance{grievances.length !== 1 ? 's' : ''} selected
+          <div className="flex items-center justify-between pb-1">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {selected.size} of {grievances.length} impact{grievances.length !== 1 ? 's' : ''} selected
             </span>
             <button
               onClick={toggleAll}
-              className="text-xs text-sky-400 hover:text-sky-300 font-medium transition-colors"
+              className="text-xs font-medium transition-colors"
+              style={{ color: 'var(--accent)' }}
             >
               {selected.size === grievances.length ? 'Deselect All' : 'Select All'}
             </button>
@@ -103,8 +124,10 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
 
           {grievances.length === 0 ? (
             <div className="text-center py-8">
-              <AlertOctagon className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-sm text-slate-500">No negative or mixed impacts found to file as grievances.</p>
+              <AlertOctagon className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--text-faint)' }} />
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                No adverse or mixed impacts identified to file as grievances.
+              </p>
             </div>
           ) : (
             grievances.map((grievance, idx) => {
@@ -115,33 +138,43 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
                 <button
                   key={idx}
                   onClick={() => toggleSelection(idx)}
-                  className={`w-full text-left p-4 rounded-xl border-l-4 transition-all ${
-                    isSelected
-                      ? isNegative
-                        ? 'border-l-rose-500 bg-rose-950/25 border border-r-rose-900/40 border-t-rose-900/40 border-b-rose-900/40'
-                        : 'border-l-amber-500 bg-amber-950/25 border border-r-amber-900/40 border-t-amber-900/40 border-b-amber-900/40'
-                      : 'border-l-slate-700 bg-slate-900/40 border border-slate-800 opacity-60 hover:opacity-80'
-                  }`}
+                  className="w-full text-left p-3 rounded transition-colors"
+                  style={{
+                    background: isSelected
+                      ? isNegative ? 'var(--danger-dim)' : 'var(--warning-dim)'
+                      : 'var(--bg-raised)',
+                    border: '1px solid',
+                    borderColor: isSelected
+                      ? isNegative ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'
+                      : 'var(--border)',
+                    borderLeftWidth: '3px',
+                    borderLeftColor: isNegative ? 'var(--danger)' : 'var(--warning)',
+                  }}
                 >
-                  <div className="flex items-start space-x-3">
+                  <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex-shrink-0">
                       {isSelected ? (
-                        <CheckSquare className={`w-4.5 h-4.5 ${isNegative ? 'text-rose-400' : 'text-amber-400'}`} />
+                        <CheckSquare
+                          className="w-4 h-4"
+                          style={{ color: isNegative ? '#f87171' : '#fbbf24' }}
+                        />
                       ) : (
-                        <Square className="w-4.5 h-4.5 text-slate-600" />
+                        <Square className="w-4 h-4" style={{ color: 'var(--text-faint)' }} />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-200 leading-relaxed">{grievance.text}</p>
-                      <div className="flex items-center space-x-2 mt-2">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                          isNegative
-                            ? 'bg-rose-950 text-rose-400 border border-rose-800'
-                            : 'bg-amber-950 text-amber-400 border border-amber-800'
-                        }`}>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                        {grievance.text}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className={`chip ${isNegative ? 'chip-danger' : 'chip-warning'}`}>
                           {isNegative ? 'Negative' : 'Mixed'}
                         </span>
-                        <span className="text-[10px] text-slate-500">{grievance.affected_group}</span>
+                        {grievance.affected_group && (
+                          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                            {grievance.affected_group}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -152,32 +185,33 @@ export const GrievanceSelector: React.FC<GrievanceSelectorProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-          >
+        <div className="modal-footer">
+          <button onClick={onClose} className="btn btn-ghost">
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={selected.size === 0 || isSubmitting}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-bold shadow-lg shadow-rose-900/40 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="btn btn-primary"
+            style={{
+              background: 'var(--danger)',
+            }}
           >
             {isSubmitting ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Generating Petition...</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Generating Petition…</span>
               </>
             ) : (
               <>
                 <span>Generate Objection ({selected.size})</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-3.5 h-3.5" />
               </>
             )}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
