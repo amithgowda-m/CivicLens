@@ -1,0 +1,174 @@
+{
+  "policy_summary": "- **Mandatory Setback Increase**: Effective Q2 2024, commercial buildings on plots between 1,000 and 5,000 sq ft in Ward 150 must maintain a 3.0-metre front setback, increasing the current requirement by 1.2 metres.\n- **Structural Compliance**: To meet the new setback standards, affected properties may require the demolition or significant structural modification of front-facing structures.\n- **Property Tax Changes**: Properties in the reclassified C-2 zone will face revised Annual Rental Value (ARV) calculations under Section 108A, resulting in updated property tax obligations.\n- **Citizen Impact**: Approximately 340 residential units (survey numbers 42-68) are directly affected by these zoning, structural, and tax revisions.",
+  "stakeholders_impacted": [
+    "Residential Property Owners & Tenants",
+    "Commercial Businesses & Shopkeepers"
+  ],
+  "positive_impacts": [],
+  "negative_impacts": [
+    "Small commercial property owners in Ward 150: The mandatory 3.0-meter front setback reduces the usable frontage and potentially the leasable area for small commercial plots, directly impacting revenue potential and requiring costly compliance adjustments.",
+    "Residents of 340 residential units in survey numbers 42-68: The reclassification of the zone to C-2 triggers a revision in property tax rates, resulting in increased annual financial liabilities for the specified residential households.",
+    "Commercial building owners in Ward 150: The requirement for demolition or significant structural modification to meet setback standards imposes substantial capital expenditure and operational disruption on existing commercial structures."
+  ],
+  "impacts": [
+    {
+      "text": "Small commercial property owners in Ward 150: The mandatory 3.0-meter front setback reduces the usable frontage and potentially the leasable area for small commercial plots, directly impacting revenue potential and requiring costly compliance adjustments.",
+      "polarity": "negative",
+      "affected_group": "Small commercial property owners in Ward 150",
+      "impact_reasoning": "The mandatory 3.0-meter front setback reduces the usable frontage and potentially the leasable area for small commercial plots, directly impacting revenue potential and requiring costly compliance adjustments.",
+      "critic_confirmed": true,
+      "critic_note": "While the financial burden on owners is valid, the assessment ignores the positive externalities for adjacent residents (reduced noise/heat) and the potential for increased property values due to improved streetscape aesthetics, which may offset some revenue loss.",
+      "overlooked_subgroups": [
+        "Adjacent residential tenants",
+        "Pedestrians and street users"
+      ]
+    },
+    {
+      "text": "Residents of 340 residential units in survey numbers 42-68: The reclassification of the zone to C-2 triggers a revision in property tax rates, resulting in increased annual financial liabilities for the specified residential households.",
+      "polarity": "negative",
+      "affected_group": "Residents of 340 residential units in survey numbers 42-68",
+      "impact_reasoning": "The reclassification of the zone to C-2 triggers a revision in property tax rates, resulting in increased annual financial liabilities for the specified residential households.",
+      "critic_confirmed": false,
+      "critic_note": "The assumption that reclassification automatically triggers a negative tax impact is flawed; C-2 zones often correlate with improved public services and infrastructure investment, which can be a net positive for residents, and the tax increase may be marginal compared to property value appreciation.",
+      "overlooked_subgroups": [
+        "Low-income renters in the zone",
+        "Local service providers benefiting from increased commercial activity"
+      ]
+    },
+    {
+      "text": "Commercial building owners in Ward 150: The requirement for demolition or significant structural modification to meet setback standards imposes substantial capital expenditure and operational disruption on existing commercial structures.",
+      "polarity": "negative",
+      "affected_group": "Commercial building owners in Ward 150",
+      "impact_reasoning": "The requirement for demolition or significant structural modification to meet setback standards imposes substantial capital expenditure and operational disruption on existing commercial structures.",
+      "critic_confirmed": true,
+      "critic_note": "The negative polarity is valid regarding capital expenditure, but it fails to account for the safety and accessibility improvements for disabled individuals and the reduction in fire risk, which are significant public health benefits not captured in a purely financial impact assessment.",
+      "overlooked_subgroups": [
+        "Persons with disabilities",
+        "Emergency services personnel"
+      ]
+    }
+  ],
+  "risk_flags": [
+    "Historical policy variance detected against document test1 across 1 related clause (e.g. \"Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall...\").",
+    "Historical policy variance detected against document cli_bda_ across 1 related clause (e.g. \"Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall...\").",
+    "Unrepresented subgroup exposed: Adjacent residential tenants",
+    "Unrepresented subgroup exposed: Pedestrians and street users",
+    "Unrepresented subgroup exposed: Future mixed-use developers",
+    "Unrepresented subgroup exposed: Local municipal infrastructure budget",
+    "Unrepresented subgroup exposed: Low-income renters in the zone",
+    "Unrepresented subgroup exposed: Local service providers benefiting from increased commercial activity",
+    "Unrepresented subgroup exposed: Persons with disabilities",
+    "Unrepresented subgroup exposed: Emergency services personnel"
+  ],
+  "legal_grounding": [
+    {
+      "citation": "Section 14 of the Karnataka Town and Country Planning Act, 1961; BDA Regulation Clause 9.1(b); Section 12 of the KTCP Act, 1961",
+      "grounded": true,
+      "grounding_status": "matched",
+      "matched_statute_section": "Section 14",
+      "statute_name": "Karnataka Town and Country Planning Act 1961",
+      "statute_excerpt": "[SECTION 14]: Enforcement of Master Plan and Regulations\n(1) On and from the date on which a Master Plan comes into operation, every land use, change of land use, and development of land within the planning area shall conform to the provisions of such Master Plan and the planning regulations attached thereto.\n(2) Building setback regulations, road widening reserves, and floor area ratio (FAR) restrictions shall be strictly enforced by the planning authority. No development permission shall be granted for any commercial or residential building that fails to maintain the mandatory front setback of not less than 3.0 meters for plot widths exceeding 12 meters.",
+      "notes": "Statute citation grounded against karnataka_bengaluru statutory corpus.",
+      "jurisdiction": "karnataka_bengaluru"
+    },
+    {
+      "citation": "zone shall attract",
+      "grounded": false,
+      "grounding_status": "not_found",
+      "matched_statute_section": null,
+      "statute_name": null,
+      "statute_excerpt": null,
+      "notes": "Citation 'zone shall attract' was not found in the indexed karnataka_bengaluru or national statutory corpus.",
+      "jurisdiction": "karnataka_bengaluru"
+    }
+  ],
+  "claim_confidence": [
+    {
+      "claim_id": "cl_03",
+      "text": "2.1 COMMERCIAL SETBACK REVISION\nEffective from the date of gazette notification (anticipated Q2 2024), all commercial buildings on plots measuring between 1000 sq ft and 5000 sq ft within Ward 150 shall maintain a mandatory front setback of 3.0 metres from the plot boundary. This revision increases the current mandatory setback of 1.8 metres by 1.2 metres under BDA Regulation Clause 9.1(b).",
+      "page": 1,
+      "char_start": 1225,
+      "char_end": 1618,
+      "nli_score": 0.99,
+      "llm_score": 1.0,
+      "status": "ADMITTED",
+      "ward": "150",
+      "objection_deadline": null,
+      "stated_objection_authority": null,
+      "jurisdiction_hint": "karnataka_bengaluru",
+      "authority_status": null
+    },
+    {
+      "claim_id": "cl_04",
+      "text": "2.1 COMMERCIAL SETBACK REVISION\nEffective from the date of gazette notification (anticipated Q2 2024), all commercial buildings on plots measuring between 1000 sq ft and 5000 sq ft within Ward 150 shall maintain a mandatory front setback of 3.0 metres from the plot boundary. This revision increases the current mandatory setback of 1.8 metres by 1.2 metres under BDA Regulation Clause 9.1(b).",
+      "page": 1,
+      "char_start": 1225,
+      "char_end": 1618,
+      "nli_score": 0.99,
+      "llm_score": 1.0,
+      "status": "ADMITTED",
+      "ward": "150",
+      "objection_deadline": null,
+      "stated_objection_authority": null,
+      "jurisdiction_hint": "karnataka_bengaluru",
+      "authority_status": null
+    },
+    {
+      "claim_id": "cl_06",
+      "text": "Estimated affected households: 340 residential units currently occupying survey numbers 42-68.\n\n2.3 PROPERTY TAX REVISION UNDER SECTION 108A\nPursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall attract revised Annual Rental Value (ARV) computation under BBMP Property Tax Regulation, Section 108A.",
+      "page": 1,
+      "char_start": 2238,
+      "char_end": 2573,
+      "nli_score": 0.99,
+      "llm_score": 0.95,
+      "status": "PENDING_AUDIT",
+      "ward": null,
+      "objection_deadline": null,
+      "stated_objection_authority": null,
+      "jurisdiction_hint": "karnataka_bengaluru",
+      "authority_status": null
+    },
+    {
+      "claim_id": "cl_08",
+      "text": "Compliance with the revised setback would require demolition or significant structural modification to front-facing structures.",
+      "page": 1,
+      "char_start": 3325,
+      "char_end": 3452,
+      "nli_score": 0.99,
+      "llm_score": 1.0,
+      "status": "ADMITTED",
+      "ward": null,
+      "objection_deadline": null,
+      "stated_objection_authority": null,
+      "jurisdiction_hint": "karnataka_bengaluru",
+      "authority_status": null
+    }
+  ],
+  "policy_contradictions": [
+    {
+      "claim_id": "cl_06",
+      "ward": null,
+      "prior_doc_id": "test1",
+      "prior_clause_text": "Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall attract revised Annual Rental Value (ARV) computation under BBMP Property Tax Regulation, Section 108A. Commercial ARV rates (Rs. 18-45 per sq ft per annum) shall replace existing residential ARV rates (Rs. 4-8 per sq ft per annum), resulting in an estimated 3x to 5x increase in annual property tax liability for affected property owners.",
+      "similarity_score": 0.8371,
+      "contradiction_flag": true,
+      "notes": "Historical policy variance detected against document test1 across 1 related clause (e.g. \"Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall...\")."
+    },
+    {
+      "claim_id": "cl_06",
+      "ward": null,
+      "prior_doc_id": "cli_bda_zoning_notice_pdf",
+      "prior_clause_text": "Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall attract revised Annual Rental Value (ARV) computation under BBMP Property Tax Regulation, Section 108A. Commercial ARV rates (Rs. 18-45 per sq ft per annum) shall replace existing residential ARV rates (Rs. 4-8 per sq ft per annum), resulting in an estimated 3x to 5x increase in annual property tax liability for affected property owners.",
+      "similarity_score": 0.8371,
+      "contradiction_flag": true,
+      "notes": "Historical policy variance detected against document cli_bda_ across 1 related clause (e.g. \"Pursuant to the reclassification in 2.2, properties within the reclassified C-2 zone shall...\")."
+    }
+  ],
+  "overall_verdict": "negative",
+  "dropped_claims_count": 0,
+  "kannada_translation": null,
+  "jurisdiction": "karnataka_bengaluru",
+  "stated_objection_authority": null,
+  "authority_status": null,
+  "omission_warnings": []
+}

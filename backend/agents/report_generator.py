@@ -1,3 +1,4 @@
+import re
 import logging
 from typing import Dict, Any, List, Optional
 from backend.schemas import CivicLensState, ReportData, ImpactItem, VerificationStatus
@@ -5,10 +6,51 @@ from backend.llm_client import llm_client
 
 logger = logging.getLogger("civiclens.agent.report_generator")
 
+CANONICAL_STAKEHOLDER_TAXONOMY = [
+    ("Residential Property Owners & Tenants", ["resident", "residential", "plot owner", "homeowner", "tenant", "housing", "apartment", "neighborhood"]),
+    ("Commercial Businesses & Shopkeepers", ["commercial", "shop", "retail", "business", "merchant", "vendor", "enterprise", "trade"]),
+    ("Real Estate & Infrastructure Developers", ["developer", "builder", "construction", "real estate", "contractor", "infrastructure"]),
+    ("Pedestrians, Commuters & Transit Users", ["pedestrian", "commuter", "transit", "walkway", "traffic", "cyclist", "motorist"]),
+    ("Civic Authorities & Ward Committees", ["ward committee", "municipal", "corporation", "authority", "bda", "bbmp", "council", "officer"]),
+    ("Vulnerable & Informal Demographics", ["low-income", "slum", "informal", "street vendor", "senior", "differently abled", "daily wage"]),
+    ("Environmental & Community Groups", ["environment", "lake", "green cover", "buffer", "tree", "civic group", "citizen", "public interest"])
+]
+
+def synthesize_stakeholder_groups(raw_groups: List[str]) -> List[str]:
+    """
+    Synthesizes and clusters raw stakeholder descriptions into 5-7 clean canonical stakeholder groups.
+    Prevents repetitive fragmentation (e.g. 20+ variations of developers or shopkeepers).
+    """
+    canonical_selected = set()
+    unmatched = []
+
+    for raw in raw_groups:
+        r_low = raw.lower()
+        matched = False
+        for canon_name, keywords in CANONICAL_STAKEHOLDER_TAXONOMY:
+            if any(kw in r_low for kw in keywords):
+                canonical_selected.add(canon_name)
+                matched = True
+                break
+        if not matched and len(raw.strip()) > 3:
+            unmatched.append(raw.strip())
+
+    ordered_groups = [canon for canon, _ in CANONICAL_STAKEHOLDER_TAXONOMY if canon in canonical_selected]
+    for u in unmatched:
+        if len(ordered_groups) >= 7:
+            break
+        if u not in ordered_groups:
+            ordered_groups.append(u)
+
+    if not ordered_groups:
+        ordered_groups = ["General Ward Residents", "Commercial Property Owners", "Municipal Administration"]
+
+    return ordered_groups[:7]
+
 async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     """
-    Report Generation Agent: Compiles the final bilingual civic impact report
-    with fixed section order, computed verdict, jurisdiction provenance, and Kannada translation.
+    Report Generation Agent: Compiles the final civic impact report with fixed section order,
+    computed verdict, consolidated contradiction intelligence, and jurisdiction provenance.
     """
     logger.info("Executing Report Generation Agent...")
     grounded = state.get("grounded_claims", [])
@@ -32,11 +74,14 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
     else:
         verdict = "mixed"
 
-    stakeholders = list(dict.fromkeys([t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]))
+    raw_stakeholders = [t.get("affected_group").strip() for t in critic_tags if t.get("affected_group")]
+    stakeholders = synthesize_stakeholder_groups(raw_stakeholders)
+
     positives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "positive"]))
     negatives = list(dict.fromkeys([f"{t.get('affected_group')}: {t.get('reasoning')}".strip() for t in critic_tags if t.get("polarity") == "negative"]))
 
-    # Build unified impacts list with both agents' perspectives
+    # Build unified impacts list with both agents' perspectives and underlying policy clauses
+    claim_map = {c.get("clause", {}).get("id"): c.get("clause", {}) for c in admitted_claims if c.get("clause")}
     seen_impact_texts = set()
     impacts: List[Dict[str, Any]] = []
     for t in critic_tags:
@@ -44,6 +89,11 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         if text in seen_impact_texts:
             continue
         seen_impact_texts.add(text)
+        cid = t.get("claim_id")
+        cl = claim_map.get(cid, {}) if cid else {}
+        policy_clause = cl.get("text") or ""
+        clause_type = cl.get("clause_type") or cl.get("typology") or ""
+
         item = ImpactItem(
             text=text,
             polarity=t.get("polarity", "neutral_mixed"),
@@ -52,12 +102,41 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
             critic_confirmed=t.get("critic_confirmed"),
             critic_note=t.get("critic_note"),
             overlooked_subgroups=t.get("overlooked_subgroups", []),
+            claim_id=cid if cid else None,
+            policy_clause=policy_clause if policy_clause else None,
+            clause_type=str(clause_type) if clause_type else None,
         )
         impacts.append(item.model_dump())
 
-    raw_risk_flags = []
+    # Thematic aggregation of contradictions by prior_doc_id
+    grouped_contradictions: Dict[str, List[Dict[str, Any]]] = {}
     for c in contradictions:
-        raw_risk_flags.append(f"Historical policy contradiction detected: {c.get('notes')}".strip())
+        pid = c.get("prior_doc_id") or "historical_archive"
+        grouped_contradictions.setdefault(pid, []).append(c)
+
+    deduped_contradictions: List[Dict[str, Any]] = []
+    for pid, group in grouped_contradictions.items():
+        sample_clause = group[0].get("prior_clause_text", "").strip()
+        count = len(group)
+        ward_info = f" in Ward {group[0].get('ward')}" if group[0].get("ward") else ""
+        short_sample = (sample_clause[:90] + "...") if len(sample_clause) > 90 else sample_clause
+        aggregated_note = (
+            f"Historical policy variance detected against document {pid[:8]}{ward_info} "
+            f"across {count} related clause{'s' if count > 1 else ''} (e.g. \"{short_sample}\")."
+        )
+        deduped_contradictions.append({
+            "claim_id": group[0].get("claim_id", ""),
+            "ward": group[0].get("ward"),
+            "prior_doc_id": pid,
+            "prior_clause_text": sample_clause,
+            "similarity_score": max((g.get("similarity_score") or 0.0) for g in group),
+            "contradiction_flag": True,
+            "notes": aggregated_note,
+        })
+
+    raw_risk_flags = []
+    for c in deduped_contradictions:
+        raw_risk_flags.append(c.get("notes", "").strip())
     for t in critic_tags:
         for sub in t.get("overlooked_subgroups", []):
             if sub and sub.strip():
@@ -72,18 +151,9 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         lg = c.get("legal_grounding")
         if lg:
             cit = lg.get("citation", "")
-            if cit not in seen_citations:
+            if cit and cit not in seen_citations:
                 seen_citations.add(cit)
                 legal_grounding.append(lg)
-
-    # Deduplicate contradictions by notes/prior_clause
-    seen_contra_notes = set()
-    deduped_contradictions = []
-    for c in contradictions:
-        c_key = (c.get("notes"), c.get("prior_doc_id"), c.get("prior_clause_text", "")[:60])
-        if c_key not in seen_contra_notes:
-            seen_contra_notes.add(c_key)
-            deduped_contradictions.append(c)
 
     # Determine document-level jurisdiction and stated authority
     doc_jurisdiction: Optional[str] = None
@@ -119,22 +189,44 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
 
     # Synthesize policy summary using LLM if available
     claims_text = "\n".join([f"- {c.get('clause', {}).get('text')}" for c in admitted_claims])
+    doc_title = state.get("document_title") or "Municipal Civic Document"
     try:
-        summary_prompt = f"Synthesize a 2-3 sentence plain-language executive policy summary for citizens based ONLY on these verified clauses:\n{claims_text}"
-        policy_summary = await llm_client.generate_text(summary_prompt, system_prompt="You are a clear civic document summarizer for local citizens. Write in plain, objective language.")
-    except Exception as e:
-        logger.warning(f"LLM Policy Summary generation failed ({e}), using fallback.")
-        policy_summary = (
-            "Municipal policy notification concerning statutory revisions, property tax regulations, or zoning frameworks. "
-            "The proposed policies establish regulatory guidelines and administrative compliance standards for local citizens."
+        summary_prompt = (
+            f"Synthesize a clear, 3-4 point plain-language executive policy summary for citizens regarding {doc_title} "
+            f"based ONLY on these verified clauses:\n{claims_text}\n\n"
+            "CRITICAL INSTRUCTIONS:\n"
+            "- Output ONLY 3 to 4 concise bullet points starting with '- '.\n"
+            "- Do NOT include any thinking process, reasoning tokens, role description, or preamble.\n"
+            "- Focus on the core policy directive, affected areas/wards, procedural requirements, and citizen impact."
         )
-
-    kannada_translation = {
-        "policy_summary": "ಪುರಸಭೆ ಅಧಿಸೂಚನೆಯು ನಿಯಮಾವಳಿಗಳು, ತೆರಿಗೆ ಪರಿಷ್ಕರಣೆ ಅಥವಾ ವಲಯ ರಚನೆಗಳಿಗೆ ಸಂಬಂಧಿಸಿದೆ.",
-        "overall_verdict": "ಮಿಶ್ರಿತ (Mixed)",
-        "positive_impacts": ["ನಾಗರಿಕ ಆಡಳಿತ ಅನುಸರಣೆ ಮತ್ತು ನಿಯಂತ್ರಣ ಸ್ಪಷ್ಟತೆ."],
-        "negative_impacts": ["ಸಣ್ಣ ವ್ಯಾಪಾರಿಗಳ ಮೇಲಿನ ಕಾರ್ಯಾಚರಣಾ ಹೊರೆ ಹೆಚ್ಚಳ."]
-    }
+        raw_summary = await llm_client.generate_text(
+            summary_prompt,
+            system_prompt="You are a clear civic document summarizer for citizens. Provide ONLY final bullet points starting with '- ' with no preamble or internal monologue."
+        )
+        # Parse and ensure clean bullet points
+        clean_bullets = []
+        for line in raw_summary.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            clean_item = re.sub(r"^[-*•\d+.)\]]\s*", "", line).strip()
+            if len(clean_item) > 10 and not any(clean_item.lower().startswith(p) for p in ["here's", "role:", "style:", "task:", "constraint:", "input clauses:", "note:", "summary:"]):
+                clean_bullets.append(f"- {clean_item}")
+        if clean_bullets:
+            policy_summary = "\n".join(clean_bullets[:5])
+        else:
+            policy_summary = raw_summary
+    except Exception as e:
+        logger.warning(f"LLM Policy Summary generation failed ({e}), summarizing strictly from verified clauses.")
+        top_clauses = [
+            c.get("clause", {}).get("text", "").strip()
+            for c in admitted_claims[:4]
+            if c.get("clause", {}).get("text")
+        ]
+        if top_clauses:
+            policy_summary = "\n".join([f"- {cl}" for cl in top_clauses])
+        else:
+            policy_summary = f"- {doc_title}: Administrative and regulatory provisions verified from document text."
 
     report = ReportData(
         policy_summary=policy_summary,
@@ -148,13 +240,17 @@ async def report_generator_node(state: CivicLensState) -> Dict[str, Any]:
         policy_contradictions=deduped_contradictions,
         overall_verdict=verdict,
         dropped_claims_count=dropped_count,
-        kannada_translation=kannada_translation,
         jurisdiction=doc_jurisdiction,
         stated_objection_authority=doc_authority,
         authority_status=doc_authority_status,
-        omission_warnings=omission_warnings
+        omission_warnings=omission_warnings,
+        document_title=state.get("document_title"),
+        document_category=state.get("document_category", "general_civic_document"),
+        document_legal_status=state.get("document_legal_status", "public_record"),
+        action_type_recommended=state.get("action_type_recommended", "citizen_compliance_guide")
     )
 
     return {
         "report": report.model_dump()
     }
+

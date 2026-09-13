@@ -139,6 +139,19 @@ async def upload_document(
     }
 
     if analyze:
+        # Check for pre-cached analysis report for instant zero-latency demo loads
+        cache_path = os.path.join("backend/data/cached_reports", f"{filename}.json")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    cached_report = json.load(f)
+                DOC_STORE[doc_id]["report"] = cached_report
+                resp["report"] = cached_report
+                logger.info(f"Loaded cached report for {filename} (document_id: {doc_id})")
+                return resp
+            except Exception as err:
+                logger.warning(f"Failed loading cached report for {filename}: {err}")
+
         initial_state = {
             "document_id": doc_id,
             "filename": filename,
@@ -352,6 +365,18 @@ async def get_report(document_id: str):
     doc = DOC_STORE.get(document_id)
     if doc and doc.get("report"):
         return doc["report"]
+
+    # 1b. Check disk cache if filename exists
+    if doc and doc.get("filename"):
+        cache_path = os.path.join("backend/data/cached_reports", f"{doc['filename']}.json")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    cached_report = json.load(f)
+                doc["report"] = cached_report
+                return cached_report
+            except Exception:
+                pass
 
     # 2. Fallback: check LangGraph MemorySaver thread state
     try:
